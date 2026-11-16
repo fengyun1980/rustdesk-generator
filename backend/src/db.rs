@@ -72,7 +72,16 @@ impl Database {
         if let Some(record) = builds.get_mut(uuid) {
             record.status = status;
             if message.is_some() { record.message = message; }
-            if files.is_some() { record.files = files; }
+            // A build can be uploaded by several platform jobs (an "all" build),
+            // so merge instead of replacing the file list.
+            if let Some(new_files) = files {
+                let existing = record.files.get_or_insert_with(Vec::new);
+                for file in new_files {
+                    if !existing.contains(&file) {
+                        existing.push(file);
+                    }
+                }
+            }
         }
         drop(builds);
         self.persist().await;

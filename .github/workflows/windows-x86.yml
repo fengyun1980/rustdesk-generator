@@ -118,6 +118,13 @@ jobs:
             "${{ inputs.build-token }}" \
             ./custom-config
 
+      - name: Apply custom client branding
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
+        shell: bash
+        run: |
+          bash generator-scripts/.github/scripts/apply-custom-client.sh \
+            windows source ./custom-config .
+
       - name: Try restore template
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         id: restore-template
@@ -131,7 +138,7 @@ jobs:
             echo "Injected public key into src/common.rs"
           fi
           if bash generator-scripts/.github/scripts/restore-template.sh \
-            "${{ env.VERSION }}" "${{ matrix.job.arch }}" ./template-cache "build"; then
+            "${{ env.VERSION }}" "windows-${{ matrix.job.arch }}" ./template-cache "build"; then
             echo "SKIP_BUILD=true" >> "$GITHUB_ENV"
           else
             echo "SKIP_BUILD=false" >> "$GITHUB_ENV"
@@ -238,26 +245,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TREE_HASH="${{ steps.restore-template.outputs.tree-hash }}"
-          tar czf rustdesk-template-build-${{ matrix.job.arch }}.tar.gz Release
+          tar czf rustdesk-template-build-windows-${{ matrix.job.arch }}.tar.gz Release
           bash generator-scripts/.github/scripts/upload-template.sh \
             "${{ env.VERSION }}" "${TREE_HASH}" \
-            rustdesk-template-build-${{ matrix.job.arch }}.tar.gz
+            rustdesk-template-build-windows-${{ matrix.job.arch }}.tar.gz
 
       - name: Inject custom client files
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         shell: bash
         run: |
-          if [ -f ./custom-config/custom.txt ]; then
-            cp ./custom-config/custom.txt ./Release/custom.txt
-            echo "Injected custom.txt"
-          fi
-          ASSETS_DIR="./Release/data/flutter_assets/assets"
-          mkdir -p "${ASSETS_DIR}"
-          for LOGO in ./custom-config/logos/*; do
-            [ -f "${LOGO}" ] || continue
-            cp "${LOGO}" "${ASSETS_DIR}/$(basename "${LOGO}")"
-            echo "Injected logo: $(basename "${LOGO}")"
-          done
+          bash generator-scripts/.github/scripts/apply-custom-client.sh \
+            windows bundle ./custom-config ./Release
 
       - name: Upload unsigned
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -320,14 +318,6 @@ jobs:
         run: |
           SIGN_BASE_URL=${{ env.SIGN_BASE_URL }} SIGN_API_KEY=${{ secrets.SIGN_API_KEY }} python3 generator-scripts/.github/scripts/sign-files.py sign_files ./SignOutput/
 
-
-      - name: Checkout generator scripts
-        if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          path: generator-scripts
-          sparse-checkout: .github/scripts
-          clean: false
 
       - name: Upload artifacts to console
         if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''

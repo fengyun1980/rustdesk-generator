@@ -37,6 +37,10 @@ pub struct CustomConfig {
     pub default_settings: Option<String>,
 }
 
+fn yes_no(value: bool) -> serde_json::Value {
+    serde_json::Value::String(if value { "Y" } else { "N" }.into())
+}
+
 impl CustomConfig {
     pub fn to_kebab_json(&self) -> BTreeMap<String, serde_json::Value> {
         let mut map = BTreeMap::new();
@@ -44,11 +48,13 @@ impl CustomConfig {
         if let Some(v) = &self.password { map.insert("password".into(), serde_json::Value::String(v.clone())); }
         if let Some(v) = &self.salt { map.insert("salt".into(), serde_json::Value::String(v.clone())); }
         if let Some(v) = &self.conn_type { map.insert("conn-type".into(), serde_json::Value::String(v.clone())); }
-        if let Some(v) = self.disable_installation { map.insert("disable-installation".into(), serde_json::Value::Bool(v)); }
-        if let Some(v) = self.disable_settings { map.insert("disable-settings".into(), serde_json::Value::Bool(v)); }
-        if let Some(v) = self.disable_account { map.insert("disable-account".into(), serde_json::Value::Bool(v)); }
-        if let Some(v) = self.disable_ab { map.insert("disable-ab".into(), serde_json::Value::Bool(v)); }
-        if let Some(v) = self.disable_tcp_listen { map.insert("disable-tcp-listen".into(), serde_json::Value::Bool(v)); }
+        // RustDesk only consumes string values from custom.txt; boolean flags
+        // must therefore be encoded as "Y"/"N" (a JSON bool is ignored).
+        if let Some(v) = self.disable_installation { map.insert("disable-installation".into(), yes_no(v)); }
+        if let Some(v) = self.disable_settings { map.insert("disable-settings".into(), yes_no(v)); }
+        if let Some(v) = self.disable_account { map.insert("disable-account".into(), yes_no(v)); }
+        if let Some(v) = self.disable_ab { map.insert("disable-ab".into(), yes_no(v)); }
+        if let Some(v) = self.disable_tcp_listen { map.insert("disable-tcp-listen".into(), yes_no(v)); }
         if let Some(v) = &self.override_settings { map.insert("override-settings".into(), serde_json::Value::String(v.clone())); }
         if let Some(v) = &self.default_settings { map.insert("default-settings".into(), serde_json::Value::String(v.clone())); }
         map

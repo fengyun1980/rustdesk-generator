@@ -131,6 +131,13 @@ jobs:
             "${{ inputs.build-token }}" \
             ./custom-config
 
+      - name: Apply custom client branding
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
+        shell: bash
+        run: |
+          bash generator-scripts/.github/scripts/apply-custom-client.sh \
+            windows source ./custom-config .
+
       - name: Try restore template
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         id: restore-template
@@ -144,7 +151,7 @@ jobs:
             echo "Injected public key into src/common.rs"
           fi
           if bash generator-scripts/.github/scripts/restore-template.sh \
-            "${{ env.VERSION }}" "${{ matrix.job.arch }}" ./template-cache "build"; then
+            "${{ env.VERSION }}" "windows-${{ matrix.job.arch }}" ./template-cache "build"; then
             echo "SKIP_BUILD=true" >> "$GITHUB_ENV"
           else
             echo "SKIP_BUILD=false" >> "$GITHUB_ENV"
@@ -355,26 +362,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TREE_HASH="${{ steps.restore-template.outputs.tree-hash }}"
-          tar czf rustdesk-template-build-${{ matrix.job.arch }}.tar.gz rustdesk
+          tar czf rustdesk-template-build-windows-${{ matrix.job.arch }}.tar.gz rustdesk
           bash generator-scripts/.github/scripts/upload-template.sh \
             "${{ env.VERSION }}" "${TREE_HASH}" \
-            rustdesk-template-build-${{ matrix.job.arch }}.tar.gz
+            rustdesk-template-build-windows-${{ matrix.job.arch }}.tar.gz
 
       - name: Inject custom client files
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         shell: bash
         run: |
-          if [ -f ./custom-config/custom.txt ]; then
-            cp ./custom-config/custom.txt ./rustdesk/custom.txt
-            echo "Injected custom.txt"
-          fi
-          ASSETS_DIR="./rustdesk/data/flutter_assets/assets"
-          mkdir -p "${ASSETS_DIR}"
-          for LOGO in ./custom-config/logos/*; do
-            [ -f "${LOGO}" ] || continue
-            cp "${LOGO}" "${ASSETS_DIR}/$(basename "${LOGO}")"
-            echo "Injected logo: $(basename "${LOGO}")"
-          done
+          bash generator-scripts/.github/scripts/apply-custom-client.sh \
+            windows bundle ./custom-config ./rustdesk
 
       - name: Upload unsigned
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -420,13 +418,28 @@ jobs:
           path: ./packer-template
           if-no-files-found: error
 
+      - name: Brand executable
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
+        shell: bash
+        run: |
+          APP_NAME="$(cat ./custom-config/app-name.txt 2>/dev/null || true)"
+          if [ -n "${APP_NAME}" ] && [ "${APP_NAME}" != "RustDesk" ] && [ -f ./rustdesk/rustdesk.exe ]; then
+            mv ./rustdesk/rustdesk.exe "./rustdesk/${APP_NAME}.exe"
+            echo "Renamed rustdesk.exe to ${APP_NAME}.exe"
+          fi
+
       - name: Build self-extracted executable
         shell: bash
         run: |
+          APP_NAME="$(cat ./custom-config/app-name.txt 2>/dev/null || true)"
+          APP_EXE="rustdesk.exe"
+          if [ -n "${APP_NAME}" ] && [ -f "./rustdesk/${APP_NAME}.exe" ]; then
+            APP_EXE="${APP_NAME}.exe"
+          fi
           sed -i '/dpiAware/d' res/manifest.xml
           pushd ./libs/portable
           pip3 install -r requirements.txt
-          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
+          python3 ./generate.py -f ../../rustdesk/ -o . -e "../../rustdesk/${APP_EXE}"
           popd
           mkdir -p ./SignOutput
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe
@@ -446,7 +459,12 @@ jobs:
         # is x64 / ARM64; the produced Package.msi is globbed since its bin/<platform>/ dir varies.
         run: |
           pushd ./res/msi
-          python preprocess.py --arp -d ../../rustdesk
+          $appName = 'RustDesk'
+          if (Test-Path ./../../custom-config/app-name.txt) {
+            $candidate = (Get-Content ./../../custom-config/app-name.txt -Raw).Trim()
+            if ($candidate) { $appName = $candidate }
+          }
+          python preprocess.py --arp -d ../../rustdesk --app-name $appName
           nuget restore msi.sln
           $msiPlatform = if ('${{ matrix.job.arch }}' -eq 'aarch64') { 'ARM64' } else { 'x64' }
           msbuild msi.sln -p:Configuration=Release -p:Platform=$msiPlatform /p:TargetVersion=Windows10
@@ -474,8 +492,13 @@ jobs:
         # preprocess.py against an ARM exe.
         run: |
           git checkout -- res/msi
+          $appExe = 'rustdesk.exe'
+          if (Test-Path ./custom-config/app-name.txt) {
+            $candidate = (Get-Content ./custom-config/app-name.txt -Raw).Trim()
+            if ($candidate -and (Test-Path "./rustdesk/$candidate.exe")) { $appExe = "$candidate.exe" }
+          }
           cp -r ./rustdesk ./rustdesk-msi-template
-          mv ./rustdesk-msi-template/rustdesk.exe ./rustdesk-msi-template/RDAPPNAM.exe
+          mv "./rustdesk-msi-template/$appExe" ./rustdesk-msi-template/RDAPPNAM.exe
           Set-Content -Path ./rustdesk-msi-template/custom.txt -Value 'placeholder' -NoNewline
           $assets = './rustdesk-msi-template/data/flutter_assets/assets'
           New-Item -ItemType Directory -Force -Path $assets | Out-Null
@@ -506,14 +529,6 @@ jobs:
         run: |
           SIGN_BASE_URL=${{ env.SIGN_BASE_URL }} SIGN_API_KEY=${{ secrets.SIGN_API_KEY }} python3 generator-scripts/.github/scripts/sign-files.py sign_files ./SignOutput
 
-
-      - name: Checkout generator scripts
-        if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          path: generator-scripts
-          sparse-checkout: .github/scripts
-          clean: false
 
       - name: Upload artifacts to console
         if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''

@@ -236,17 +236,10 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         shell: bash
         run: |
-          ASSETS_DIR="./flutter/assets"
-          mkdir -p "${ASSETS_DIR}"
-          if [ -f ./custom-config/custom.txt ]; then
-            cp ./custom-config/custom.txt "${ASSETS_DIR}/custom.txt"
-            echo "Injected custom.txt"
-          fi
-          for LOGO in ./custom-config/logos/*; do
-            [ -f "${LOGO}" ] || continue
-            cp "${LOGO}" "${ASSETS_DIR}/$(basename "${LOGO}")"
-            echo "Injected logo: $(basename "${LOGO}")"
-          done
+          bash generator-scripts/.github/scripts/apply-custom-client.sh \
+            android source ./custom-config .
+          bash generator-scripts/.github/scripts/apply-custom-client.sh \
+            android bundle ./custom-config .
 
       - name: Build rustdesk
         shell: bash
@@ -306,14 +299,6 @@ jobs:
 
 
 
-
-      - name: Checkout generator scripts
-        if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          path: generator-scripts
-          sparse-checkout: .github/scripts
-          clean: false
 
       - name: Upload artifacts to console
         if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''

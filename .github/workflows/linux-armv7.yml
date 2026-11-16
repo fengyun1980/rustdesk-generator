@@ -117,25 +117,6 @@ jobs:
             "${{ inputs.build-token }}" \
             ./custom-config
 
-      - name: Try restore template
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
-        id: restore-template
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ -f ./custom-config/public-key.txt ]; then
-            PUBKEY=$(cat ./custom-config/public-key.txt)
-            sed -i "s|5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=|${PUBKEY}|g" src/common.rs
-            echo "Injected public key into src/common.rs"
-          fi
-          if bash generator-scripts/.github/scripts/restore-template.sh \
-            "${{ env.VERSION }}" "${{ matrix.job.arch }}" ./template-cache "build"; then
-            echo "SKIP_BUILD=true" >> "$GITHUB_ENV"
-          else
-            echo "SKIP_BUILD=false" >> "$GITHUB_ENV"
-          fi
-
       - name: Modify vcpkg.json for armv7
         if: matrix.job.vcpkg-triplet == 'arm-linux'
         run: |
@@ -171,17 +152,20 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         shell: bash
         run: |
+          if [ -f ./custom-config/public-key.txt ]; then
+            PUBKEY=$(cat ./custom-config/public-key.txt)
+            sed -i "s|5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=|${PUBKEY}|g" src/common.rs
+            echo "Injected public key into src/common.rs"
+          fi
+          bash generator-scripts/.github/scripts/apply-custom-client.sh \
+            linux source ./custom-config .
+          # build.py packages ./Release as-is, so the client's custom.txt has to
+          # be there before packaging.
+          mkdir -p ./Release
           if [ -f ./custom-config/custom.txt ]; then
-            cp ./custom-config/custom.txt ./custom.txt
+            cp ./custom-config/custom.txt ./Release/custom.txt
             echo "Injected custom.txt"
           fi
-          ASSETS_DIR="./flutter/assets"
-          mkdir -p "${ASSETS_DIR}"
-          for LOGO in ./custom-config/logos/*; do
-            [ -f "${LOGO}" ] || continue
-            cp "${LOGO}" "${ASSETS_DIR}/$(basename "${LOGO}")"
-            echo "Injected logo: $(basename "${LOGO}")"
-          done
 
       - uses: rustdesk-org/run-on-arch-action@d3fcfbb632b84cf7f6bc772bfaaa2c2f4f8789a8 # no release tag; commit 2026-05-26
         name: Build rustdesk sciter binary for ${{ matrix.job.arch }}
@@ -345,22 +329,16 @@ jobs:
 
 
 
-      - name: Checkout generator scripts
-        if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          path: generator-scripts
-          sparse-checkout: .github/scripts
-          clean: false
-
       - name: Upload artifacts to console
         if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
         shell: bash
         run: |
+          mkdir -p ./artifacts
+          cp rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-sciter.deb ./artifacts/
           bash generator-scripts/.github/scripts/upload-artifacts.sh \
             "${{ inputs.backend-url }}" \
             "${{ inputs.build-token }}" \
-            .
+            ./artifacts
 
   notify-failure:
     name: Report build failure

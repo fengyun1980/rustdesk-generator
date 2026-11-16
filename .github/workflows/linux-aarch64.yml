@@ -131,25 +131,6 @@ jobs:
             "${{ inputs.build-token }}" \
             ./custom-config
 
-      - name: Try restore template
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
-        id: restore-template
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ -f ./custom-config/public-key.txt ]; then
-            PUBKEY=$(cat ./custom-config/public-key.txt)
-            sed -i "s|5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=|${PUBKEY}|g" src/common.rs
-            echo "Injected public key into src/common.rs"
-          fi
-          if bash generator-scripts/.github/scripts/restore-template.sh \
-            "${{ env.VERSION }}" "${{ matrix.job.arch }}" ./template-cache "build"; then
-            echo "SKIP_BUILD=true" >> "$GITHUB_ENV"
-          else
-            echo "SKIP_BUILD=false" >> "$GITHUB_ENV"
-          fi
-
       - name: Set Swap Space
         uses: pierotofy/set-swap-space@49819abfb41bd9b44fb781159c033dba90353a7c # v1.0
         with:
@@ -228,10 +209,13 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         shell: bash
         run: |
-          if [ -f ./custom-config/custom.txt ]; then
-            cp ./custom-config/custom.txt ./custom.txt
-            echo "Injected custom.txt"
+          if [ -f ./custom-config/public-key.txt ]; then
+            PUBKEY=$(cat ./custom-config/public-key.txt)
+            sed -i "s|5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=|${PUBKEY}|g" src/common.rs
+            echo "Injected public key into src/common.rs"
           fi
+          bash generator-scripts/.github/scripts/apply-custom-client.sh \
+            linux source ./custom-config .
           ASSETS_DIR="./flutter/assets"
           mkdir -p "${ASSETS_DIR}"
           for LOGO in ./custom-config/logos/*; do
@@ -381,6 +365,29 @@ jobs:
             for name in rustdesk*??.deb; do
               mv "$name" "${name%%.deb}-${{ matrix.job.arch }}.deb"
             done
+
+            # The client reads custom.txt from the directory of the executable.
+            # The deb has already been packaged by build.py, so inject the file
+            # there (and into the bundle the rpm builds below package from).
+            if [ -f /workspace/custom-config/custom.txt ]; then
+              case ${{ matrix.job.arch }} in
+                aarch64) BUNDLE=flutter/build/linux/arm64/release/bundle ;;
+                *)       BUNDLE=flutter/build/linux/x64/release/bundle ;;
+              esac
+              mkdir -p "${BUNDLE}"
+              cp /workspace/custom-config/custom.txt "${BUNDLE}/custom.txt"
+              for deb in rustdesk-*-${{ matrix.job.arch }}.deb; do
+                [ -f "${deb}" ] || continue
+                rm -rf /tmp/deb-custom
+                dpkg-deb -R "${deb}" /tmp/deb-custom
+                cp /workspace/custom-config/custom.txt /tmp/deb-custom/usr/share/rustdesk/custom.txt
+                if [ -f /tmp/deb-custom/DEBIAN/md5sums ]; then
+                  (cd /tmp/deb-custom && find usr -type f -print0 | sort -z | xargs -0 md5sum > DEBIAN/md5sums)
+                fi
+                dpkg-deb -b /tmp/deb-custom "${deb}"
+                rm -rf /tmp/deb-custom
+              done
+            fi
 
             # rpm package
             echo -e "start packaging fedora package"
@@ -548,14 +555,6 @@ jobs:
 
 
 
-
-      - name: Checkout generator scripts
-        if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          path: generator-scripts
-          sparse-checkout: .github/scripts
-          clean: false
 
       - name: Upload artifacts to console
         if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''

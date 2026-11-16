@@ -123,6 +123,13 @@ jobs:
             "${{ inputs.build-token }}" \
             ./custom-config
 
+      - name: Apply custom client branding
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
+        shell: bash
+        run: |
+          bash generator-scripts/.github/scripts/apply-custom-client.sh \
+            macos source ./custom-config .
+
       - name: Try restore template
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         id: restore-template
@@ -136,7 +143,7 @@ jobs:
             echo "Injected public key into src/common.rs"
           fi
           if bash generator-scripts/.github/scripts/restore-template.sh \
-            "${{ env.VERSION }}" "${{ matrix.job.arch }}" ./template-cache "build"; then
+            "${{ env.VERSION }}" "macos-${{ matrix.job.arch }}" ./template-cache "build"; then
             echo "SKIP_BUILD=true" >> "$GITHUB_ENV"
           else
             echo "SKIP_BUILD=false" >> "$GITHUB_ENV"
@@ -296,27 +303,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TREE_HASH="${{ steps.restore-template.outputs.tree-hash }}"
-          tar czf rustdesk-template-build-${{ matrix.job.arch }}.tar.gz flutter/build/macos/Build/Products/Release/RustDesk.app
+          tar czf rustdesk-template-build-macos-${{ matrix.job.arch }}.tar.gz flutter/build/macos/Build/Products/Release/RustDesk.app
           bash generator-scripts/.github/scripts/upload-template.sh \
             "${{ env.VERSION }}" "${TREE_HASH}" \
-            rustdesk-template-build-${{ matrix.job.arch }}.tar.gz
+            rustdesk-template-build-macos-${{ matrix.job.arch }}.tar.gz
 
       - name: Inject custom client files
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         shell: bash
         run: |
-          APP_DIR="./flutter/build/macos/Build/Products/Release/RustDesk.app/Contents/MacOS"
-          if [ -f ./custom-config/custom.txt ]; then
-            cp ./custom-config/custom.txt "${APP_DIR}/custom.txt"
-            echo "Injected custom.txt"
-          fi
-          ASSETS_DIR="${APP_DIR}/data/flutter_assets/assets"
-          mkdir -p "${ASSETS_DIR}"
-          for LOGO in ./custom-config/logos/*; do
-            [ -f "${LOGO}" ] || continue
-            cp "${LOGO}" "${ASSETS_DIR}/$(basename "${LOGO}")"
-            echo "Injected logo: $(basename "${LOGO}")"
-          done
+          bash generator-scripts/.github/scripts/apply-custom-client.sh \
+            macos bundle ./custom-config \
+            ./flutter/build/macos/Build/Products/Release/RustDesk.app
 
       - name: create unsigned dmg
         run: |
@@ -365,22 +363,16 @@ jobs:
           test -f "rustdesk-${VERSION}-${ARCH}.dmg"
 
 
-      - name: Checkout generator scripts
-        if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          path: generator-scripts
-          sparse-checkout: .github/scripts
-          clean: false
-
       - name: Upload artifacts to console
         if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
         shell: bash
         run: |
+          mkdir -p ./artifacts
+          cp rustdesk-*.dmg ./artifacts/
           bash generator-scripts/.github/scripts/upload-artifacts.sh \
             "${{ inputs.backend-url }}" \
             "${{ inputs.build-token }}" \
-            .
+            ./artifacts
 
   notify-failure:
     name: Report build failure

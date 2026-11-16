@@ -5,10 +5,12 @@ set -euo pipefail
 # Calculates git tree hash (after public key injection), determines
 # the Release tag, and downloads template files if available.
 #
-# Usage: restore-template.sh <version> <arch> <output-dir> [<template-types>]
+# Usage: restore-template.sh <version> <template-key> <output-dir> [<template-types>]
 # Arguments:
 #   version:       RustDesk version (e.g. 1.5.1)
-#   arch:          Architecture (e.g. x86_64, aarch64)
+#   template-key:  Platform-scoped key (e.g. windows-x86_64, macos-aarch64,
+#                  linux-x86_64, android-armv7, ios-aarch64). A bare arch such
+#                  as "x86_64" would collide across platforms.
 #   output-dir:    Directory to download template files into
 #   template-types: Space-separated list of template types (default: "build")
 # Exit codes:
@@ -20,7 +22,15 @@ ARCH="${2:?arch required}"
 OUTPUT_DIR="${3:?output-dir required}"
 TEMPLATE_TYPES="${4:-build}"
 
-TREE_HASH=$(git add -A && git write-tree)
+# Hash only the RustDesk source changes (upstream commit + public key +
+# build-time branding). Helper directories checked out next to the source must
+# not take part, otherwise the tag changes for every build/customer and the
+# template cache never hits.
+git add -A
+for helper in custom-config generator-scripts template-cache signed-apk packer-template msi-template; do
+  git rm -r --cached --quiet --ignore-unmatch "${helper}" >/dev/null 2>&1 || true
+done
+TREE_HASH=$(git write-tree)
 TAG="template-${VERSION}-${TREE_HASH:0:7}"
 
 echo "Tree hash: ${TREE_HASH}"
@@ -35,7 +45,7 @@ mkdir -p "${OUTPUT_DIR}"
 
 ALL_FOUND=true
 for TYPE in ${TEMPLATE_TYPES}; do
-  ASSET_PATTERN="rustdesk-template-${TYPE}-${ARCH}*"
+  ASSET_PATTERN="rustdesk-template-${TYPE}-${ARCH}.tar.gz"
   if gh release download "${TAG}" -R "${GITHUB_REPOSITORY}" -D "${OUTPUT_DIR}" -p "${ASSET_PATTERN}" --clobber 2>/dev/null; then
     echo "Restored: rustdesk-template-${TYPE}-${ARCH}"
   else

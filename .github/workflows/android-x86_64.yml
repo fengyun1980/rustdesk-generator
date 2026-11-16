@@ -184,7 +184,7 @@ jobs:
             echo "Injected public key into src/common.rs"
           fi
           if bash generator-scripts/.github/scripts/restore-template.sh \
-            "${{ env.VERSION }}" "${{ matrix.job.arch }}" ./template-cache "build"; then
+            "${{ env.VERSION }}" "android-${{ matrix.job.arch }}" ./template-cache "build"; then
             echo "SKIP_BUILD=true" >> "$GITHUB_ENV"
           else
             echo "SKIP_BUILD=false" >> "$GITHUB_ENV"
@@ -312,26 +312,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TREE_HASH="${{ steps.restore-template.outputs.tree-hash }}"
-          tar czf rustdesk-template-build-${{ matrix.job.arch }}.tar.gz target/${{ matrix.job.target }}/release/liblibrustdesk.so
+          tar czf rustdesk-template-build-android-${{ matrix.job.arch }}.tar.gz target/${{ matrix.job.target }}/release/liblibrustdesk.so
           bash generator-scripts/.github/scripts/upload-template.sh \
             "${{ env.VERSION }}" "${TREE_HASH}" \
-            rustdesk-template-build-${{ matrix.job.arch }}.tar.gz
+            rustdesk-template-build-android-${{ matrix.job.arch }}.tar.gz
 
       - name: Inject custom client files
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         shell: bash
         run: |
-          ASSETS_DIR="./flutter/assets"
-          mkdir -p "${ASSETS_DIR}"
-          if [ -f ./custom-config/custom.txt ]; then
-            cp ./custom-config/custom.txt "${ASSETS_DIR}/custom.txt"
-            echo "Injected custom.txt"
-          fi
-          for LOGO in ./custom-config/logos/*; do
-            [ -f "${LOGO}" ] || continue
-            cp "${LOGO}" "${ASSETS_DIR}/$(basename "${LOGO}")"
-            echo "Injected logo: $(basename "${LOGO}")"
-          done
+          bash generator-scripts/.github/scripts/apply-custom-client.sh \
+            android source ./custom-config .
+          bash generator-scripts/.github/scripts/apply-custom-client.sh \
+            android bundle ./custom-config .
 
       - name: Build rustdesk
         shell: bash
@@ -416,14 +409,6 @@ jobs:
 
 
 
-
-      - name: Checkout generator scripts
-        if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          path: generator-scripts
-          sparse-checkout: .github/scripts
-          clean: false
 
       - name: Upload artifacts to console
         if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
