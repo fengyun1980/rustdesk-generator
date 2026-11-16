@@ -13,7 +13,7 @@ import re
 import sys
 
 APP_LABEL = "RustDesk 控制台"
-APP_ID = "com.fengyun.rdconsole"
+APP_ID = "top.tmnas.rustdesk_console_mobile"
 
 
 def patch_home_page(path):
