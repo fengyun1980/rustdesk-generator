@@ -4,6 +4,9 @@ name: Build RustDesk Console for Android
 # from a RustDesk Console instance and starts native remote sessions.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/console-native
 
 permissions:
   contents: write
