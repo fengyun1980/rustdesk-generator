@@ -80,15 +80,32 @@ def patch_styles(path):
 def patch_gradle(path):
     with open(path, "r", encoding="utf-8") as fh:
         src = fh.read()
-    if 'applicationId "%s"' % APP_ID in src:
+    if 'applicationId "%s"' % APP_ID in src and 'signingConfigs.console' in src:
         print("build.gradle already patched")
         return
-    new = re.sub(r'applicationId\s+"com\.carriez\.flutter_hbb"',
+
+    src = re.sub(r'applicationId\s+"com\.carriez\.flutter_hbb"',
                  'applicationId "%s"' % APP_ID, src, count=1)
-    if new == src:
-        raise SystemExit("cannot find applicationId in build.gradle")
+    if 'signingConfigs.console' not in src:
+        anchor = "    signingConfigs {\n"
+        if anchor not in src:
+            raise SystemExit("cannot find signingConfigs in build.gradle")
+        console_config = anchor + (
+            "      console {\n"
+            "        keyAlias 'androiddebugkey'\n"
+            "        keyPassword 'android'\n"
+            "        storeFile file('console.keystore')\n"
+            "        storePassword 'android'\n"
+            "      }\n"
+        )
+        src = src.replace(anchor, console_config, 1)
+        src = src.replace("signingConfig signingConfigs.release",
+                          "signingConfig signingConfigs.console", 1)
+    if 'applicationId "%s"' % APP_ID not in src or 'signingConfigs.console' not in src:
+        raise SystemExit("failed to patch applicationId/signing in build.gradle")
+
     with open(path, "w", encoding="utf-8") as fh:
-        fh.write(new)
+        fh.write(src)
     print("patched build.gradle")
 
 

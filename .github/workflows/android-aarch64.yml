@@ -277,9 +277,8 @@ jobs:
         run: |
           cp console-src/console-mobile/console_page.dart ./flutter/lib/mobile/pages/
           cp console-src/console-mobile/console_api.dart ./flutter/lib/mobile/pages/
+          cp console-src/console-mobile/debug.keystore ./flutter/android/app/console.keystore
           python3 console-src/console-mobile/apply.py ./
-          mkdir -p "$HOME/.android"
-          cp console-src/console-mobile/debug.keystore "$HOME/.android/debug.keystore"
 
       - name: Install Rust toolchain
         if: env.SKIP_BUILD != 'true'
