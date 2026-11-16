@@ -88,7 +88,7 @@ env:
 
 jobs:
   generate-bridge:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || inputs.console-mobile }}
     uses: ./.github/workflows/bridge.yml
   build-rustdesk-android:
     needs: [generate-bridge]
