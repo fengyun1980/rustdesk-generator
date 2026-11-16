@@ -1,0 +1,18 @@
+name: Build RustDesk Console for Android
+
+# Builds the RustDesk client with the extra "控制台" tab that lists devices
+# from a RustDesk Console instance and starts native remote sessions.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  android-aarch64:
+    uses: ./.github/workflows/android-aarch64.yml
+    with:
+      console-mobile: true
+      skip-notify: true
+    secrets: inherit

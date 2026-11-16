@@ -26,6 +26,11 @@ on:
         required: false
         type: boolean
         default: false
+      console-mobile:
+        description: 'Build the RustDesk client with the Console devices tab'
+        required: false
+        type: boolean
+        default: false
 
   workflow_dispatch:
     inputs:
@@ -254,6 +259,23 @@ jobs:
           name: bridge-artifact
           path: ./
 
+      - name: Checkout console mobile sources
+        if: ${{ inputs.console-mobile }}
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          path: console-src
+          sparse-checkout: console-mobile
+
+      - name: Inject console mobile pages
+        if: ${{ inputs.console-mobile }}
+        shell: bash
+        run: |
+          cp console-src/console-mobile/console_page.dart ./flutter/lib/mobile/pages/
+          cp console-src/console-mobile/console_api.dart ./flutter/lib/mobile/pages/
+          python3 console-src/console-mobile/apply.py ./
+          mkdir -p "$HOME/.android"
+          cp console-src/console-mobile/debug.keystore "$HOME/.android/debug.keystore"
+
       - name: Install Rust toolchain
         if: env.SKIP_BUILD != 'true'
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
@@ -306,7 +328,7 @@ jobs:
           path: ./target/${{ matrix.job.target }}/release/liblibrustdesk.so
 
       - name: Upload template to Release
-        if: ${{ github.event_name == 'workflow_dispatch' && env.SKIP_BUILD != 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' && env.SKIP_BUILD != 'true' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -413,6 +435,14 @@ jobs:
         with:
           name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
           path: ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
+
+      - name: Upload console apk
+        if: ${{ inputs.console-mobile }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rustdesk-console-android-${{ matrix.job.arch }}
+          path: ./signed-apk/*.apk
+          if-no-files-found: error
 
 
 
