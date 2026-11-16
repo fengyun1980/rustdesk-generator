@@ -93,22 +93,26 @@ if [ "${PHASE}" = "source" ]; then
       fi
       if [ -n "${APP_NAME}" ]; then
         python3 - "${TARGET}/flutter/windows/runner/Runner.rc" "${APP_NAME}" <<'PY'
+import re
 import sys
 
 path, name = sys.argv[1], sys.argv[2]
-pairs = [
-    ('"FileDescription", "RustDesk Remote Desktop"', f'"FileDescription", "{name}"'),
-    ('"InternalName", "rustdesk"', f'"InternalName", "{name}"'),
-    ('"OriginalFilename", "rustdesk.exe"', f'"OriginalFilename", "{name}.exe"'),
-    ('"ProductName", "RustDesk"', f'"ProductName", "{name}"'),
+# Each VALUE line optionally ends with a literal "\0" (Flutter-generated
+# Runner.rc appends it for null-terminated Windows resources). Match it
+# optionally so the script works across Flutter versions.
+replacements = [
+    (r'("FileDescription", ")[^"]+("\s*(?:\\0)?)',   f'\\1{name}\\2'),
+    (r'("InternalName", ")[^"]+("\s*(?:\\0)?)',       f'\\1{name}\\2'),
+    (r'("OriginalFilename", ")[^"]+(\.exe"\s*(?:\\0)?)', f'\\1{name}\\2'),
+    (r'("ProductName", ")[^"]+("\s*(?:\\0)?)',        f'\\1{name}\\2'),
 ]
 try:
     with open(path, encoding="utf-8") as f:
         text = f.read()
 except OSError:
     sys.exit(0)
-for old, new in pairs:
-    text = text.replace(old, new)
+for pattern, repl in replacements:
+    text = re.sub(pattern, repl, text)
 with open(path, "w", encoding="utf-8") as f:
     f.write(text)
 PY

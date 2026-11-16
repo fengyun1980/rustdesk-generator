@@ -187,6 +187,13 @@ jobs:
             "${{ inputs.build-token }}" \
             ./custom-config
 
+      - name: Apply custom client branding
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
+        shell: bash
+        run: |
+          bash generator-scripts/.github/scripts/apply-custom-client.sh \
+            android source ./custom-config .
+
       - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1
         id: setup-ndk
         with:
@@ -236,8 +243,6 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         shell: bash
         run: |
-          bash generator-scripts/.github/scripts/apply-custom-client.sh \
-            android source ./custom-config .
           bash generator-scripts/.github/scripts/apply-custom-client.sh \
             android bundle ./custom-config .
 

@@ -123,6 +123,13 @@ jobs:
             "${{ inputs.build-token }}" \
             ./custom-config
 
+      - name: Apply custom client branding
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
+        shell: bash
+        run: |
+          bash generator-scripts/.github/scripts/apply-custom-client.sh \
+            ios source ./custom-config .
+
       - name: Try restore template
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         id: restore-template
@@ -232,8 +239,6 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         shell: bash
         run: |
-          bash generator-scripts/.github/scripts/apply-custom-client.sh \
-            ios source ./custom-config .
           bash generator-scripts/.github/scripts/apply-custom-client.sh \
             ios bundle ./custom-config .
 
