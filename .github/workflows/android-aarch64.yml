@@ -278,6 +278,7 @@ jobs:
           cp console-src/console-mobile/console_page.dart ./flutter/lib/mobile/pages/
           cp console-src/console-mobile/console_api.dart ./flutter/lib/mobile/pages/
           cp console-src/console-mobile/debug.keystore ./flutter/android/app/console.keystore
+          cp -r console-src/console-mobile/android/* ./flutter/android/
           python3 console-src/console-mobile/apply.py ./
 
       - name: Install Rust toolchain
