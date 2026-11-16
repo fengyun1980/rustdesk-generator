@@ -58,6 +58,25 @@ def patch_manifest(path):
     print("patched AndroidManifest.xml")
 
 
+def patch_styles(path):
+    """Let Android 15/16 edge-to-edge layouts use landscape cutout areas."""
+    with open(path, "r", encoding="utf-8") as fh:
+        src = fh.read()
+    if "windowLayoutInDisplayCutoutMode" in src:
+        print("%s already patched" % os.path.basename(os.path.dirname(path)))
+        return
+
+    item = ('        <item name="android:windowLayoutInDisplayCutoutMode">'
+            'shortEdges</item>\n')
+    for style_name in ("LaunchTheme", "NormalTheme"):
+        pattern = re.compile(r'(<style name="%s"[^>]*>\n)' % style_name)
+        src = pattern.sub(lambda match: match.group(1) + item, src, count=1)
+
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(src)
+    print("patched %s" % path)
+
+
 def patch_gradle(path):
     with open(path, "r", encoding="utf-8") as fh:
         src = fh.read()
@@ -84,8 +103,14 @@ def main():
     manifest = os.path.join(flutter, "android", "app", "src", "main",
                             "AndroidManifest.xml")
     gradle = os.path.join(flutter, "android", "app", "build.gradle")
+    styles = [
+        os.path.join(flutter, "android", "app", "src", "main", "res",
+                     "values", "styles.xml"),
+        os.path.join(flutter, "android", "app", "src", "main", "res",
+                     "values-night", "styles.xml"),
+    ]
 
-    for target in (home_page, manifest, gradle):
+    for target in [home_page, manifest, gradle] + styles:
         if not os.path.isfile(target):
             raise SystemExit("missing file: %s" % target)
     for name in ("console_page.dart", "console_api.dart"):
@@ -94,6 +119,8 @@ def main():
 
     patch_home_page(home_page)
     patch_manifest(manifest)
+    for style_path in styles:
+        patch_styles(style_path)
     patch_gradle(gradle)
     print("console mobile patch applied")
 

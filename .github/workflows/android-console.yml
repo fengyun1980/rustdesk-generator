@@ -12,6 +12,10 @@ permissions:
   contents: write
   actions: read
 
+concurrency:
+  group: console-android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   android-aarch64:
     uses: ./.github/workflows/android-aarch64.yml
