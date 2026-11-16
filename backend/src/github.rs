@@ -20,7 +20,7 @@ struct DispatchInputs {
     build_id: String,
     #[serde(rename = "backend-url")]
     backend_url: String,
-    #[serde(rename = "callback-token")]
+    #[serde(rename = "build-token")]
     callback_token: String,
 }
 

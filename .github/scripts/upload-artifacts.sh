@@ -22,6 +22,7 @@ if [ "${#FILES_ARGS[@]}" -eq 0 ]; then
   exit 0
 fi
 
-curl -fsS -X POST "${BACKEND_URL}/upload" \
-  -H "X-Build-Token: ${BUILD_TOKEN}" \
+curl -fsS -X POST "${BACKEND_URL}/callback" \
+  -H "X-Callback-Token: ${BUILD_TOKEN}" \
+  -F "status=completed" \
   "${FILES_ARGS[@]}"

@@ -16,10 +16,10 @@ OUTPUT_DIR="${3:?output-dir required}"
 mkdir -p "${OUTPUT_DIR}/logos"
 
 # Fetch build config (custom.txt, public key, logo list)
-CONFIG_RESPONSE=$(curl -fsS -H "X-Build-Token: ${BUILD_TOKEN}" "${CONFIG_URL}")
+CONFIG_RESPONSE=$(curl -fsS -H "X-Callback-Token: ${BUILD_TOKEN}" "${CONFIG_URL}")
 
 # Extract custom.txt content
-CUSTOM_TXT=$(echo "${CONFIG_RESPONSE}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('customTxt',''))")
+CUSTOM_TXT=$(echo "${CONFIG_RESPONSE}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('custom_txt',''))")
 if [ -n "${CUSTOM_TXT}" ]; then
   echo -n "${CUSTOM_TXT}" > "${OUTPUT_DIR}/custom.txt"
   echo "custom.txt written (${#CUSTOM_TXT} bytes)"
@@ -28,7 +28,7 @@ else
 fi
 
 # Extract public key
-PUBLIC_KEY=$(echo "${CONFIG_RESPONSE}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('publicKey',''))")
+PUBLIC_KEY=$(echo "${CONFIG_RESPONSE}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('public_key',''))")
 if [ -n "${PUBLIC_KEY}" ]; then
   echo -n "${PUBLIC_KEY}" > "${OUTPUT_DIR}/public-key.txt"
   echo "Public key: ${PUBLIC_KEY}"
@@ -41,7 +41,7 @@ LOGOS=$(echo "${CONFIG_RESPONSE}" | python3 -c "import json,sys; logos=json.load
 if [ -n "${LOGOS}" ]; then
   for LOGO in ${LOGOS}; do
     LOGO_URL="${BACKEND_URL}/logo/${LOGO}"
-    curl -fsS -H "X-Build-Token: ${BUILD_TOKEN}" -o "${OUTPUT_DIR}/logos/${LOGO}" "${LOGO_URL}"
+    curl -fsS -H "X-Callback-Token: ${BUILD_TOKEN}" -o "${OUTPUT_DIR}/logos/${LOGO}" "${LOGO_URL}"
     echo "Downloaded logo: ${LOGO}"
   done
 else
