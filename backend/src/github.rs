@@ -12,6 +12,7 @@ pub struct GitHubClient {
 struct DispatchRequest {
     r#ref: String,
     inputs: DispatchInputs,
+    return_run_details: bool,
 }
 
 #[derive(Serialize)]
@@ -53,6 +54,7 @@ impl GitHubClient {
                 backend_url: backend_url.to_string(),
                 callback_token: callback_token.to_string(),
             },
+            return_run_details: true,
         };
 
         let client = reqwest::Client::new();

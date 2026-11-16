@@ -285,3 +285,17 @@ jobs:
             "${{ inputs.backend-url }}" \
             "${{ inputs.build-token }}" \
             ./flutter/build/ios/ipa
+
+  notify-failure:
+    name: Report build failure
+    if: ${{ failure() && github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
+    needs: [generate-bridge, build-rustdesk-ios]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify console
+        shell: bash
+        run: |
+          curl -fsS -X POST "${{ inputs.backend-url }}/callback" \
+            -H "X-Callback-Token: ${{ inputs.build-token }}" \
+            -F "status=failed" \
+            -F "message=Build failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

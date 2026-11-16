@@ -14,7 +14,7 @@ jobs:
     outputs:
       version: ${{ steps.changelog.outputs.version }}
       skipped: ${{ steps.changelog.outputs.skipped }}
-      source_commit: ${{ steps.changelog.outputs.source_commit }}
+      source_commit: ${{ steps.source.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,8 +31,15 @@ jobs:
         id: changelog
         with:
           github-token: ${{ steps.app-token.outputs.token }}
-          output: CHANGELOG.md
+          output-file: CHANGELOG.md
+          tag-prefix: ''
+          skip-version-file: 'true'
           skip-on-empty: true
+
+      - name: Record release commit
+        id: source
+        if: steps.changelog.outputs.skipped != 'true'
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Verify stable version
         if: steps.changelog.outputs.skipped != 'true'
@@ -43,13 +50,14 @@ jobs:
             exit 1
           fi
 
-      - name: Verify source commit matches HEAD
+      - name: Verify release tag points at HEAD
         if: steps.changelog.outputs.skipped != 'true'
         run: |
-          SOURCE_COMMIT="${{ steps.changelog.outputs.source_commit }}"
+          TAG="${{ steps.changelog.outputs.tag }}"
+          TAG_COMMIT=$(git rev-parse "refs/tags/${TAG}^{commit}" 2>/dev/null || true)
           HEAD_COMMIT=$(git rev-parse HEAD)
-          if [ "$SOURCE_COMMIT" != "$HEAD_COMMIT" ]; then
-            echo "Source commit $SOURCE_COMMIT does not match HEAD $HEAD_COMMIT"
+          if [ "$TAG_COMMIT" != "$HEAD_COMMIT" ]; then
+            echo "Tag ${TAG} does not point at HEAD (${TAG_COMMIT:-missing} != ${HEAD_COMMIT})"
             exit 1
           fi
 

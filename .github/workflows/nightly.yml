@@ -104,7 +104,7 @@ jobs:
     if: needs.check-commits.outputs.has_new_commits == 'true'
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      version: ${{ steps.changelog.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -131,8 +131,10 @@ jobs:
           skip-commit: 'true'
 
       - name: Prepare release body and create nightly tag
+        env:
+          CHANGELOG: ${{ steps.changelog.outputs.clean_changelog }}
         run: |
-          printf "${{ steps.changelog.outputs.clean_changelog }}" > CHANGELOG.md
+          printf '%s' "$CHANGELOG" > CHANGELOG.md
           git tag nightly
           git push origin nightly
 
