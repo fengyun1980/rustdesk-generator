@@ -1,4 +1,4 @@
-name: Build RustDesk for macOS x86_64
+name: 构建 RustDesk（macOS x86_64）
 
 permissions:
   contents: write
@@ -93,27 +93,28 @@ jobs:
               vcpkg-triplet: x64-osx,
             }
     steps:
-      - name: Export GitHub Actions cache environment variables
+      - name: 导出 GitHub Actions 缓存环境变量
         uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-      - name: Checkout source code
+      - name: 检出源代码
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: rustdesk/rustdesk
-          submodules: recursive
+          submodules: 'false'
 
-      - name: Checkout generator scripts
+      - name: 检出生成器脚本
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          submodules: 'false'
           path: generator-scripts
           sparse-checkout: .github/scripts
 
-      - name: Fetch custom client config
+      - name: 获取自定义客户端配置
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         shell: bash
         run: |
@@ -122,7 +123,7 @@ jobs:
             "${{ inputs.build-token }}" \
             ./custom-config
 
-      - name: Try restore template
+      - name: 尝试恢复模板
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         id: restore-template
         shell: bash
@@ -141,7 +142,7 @@ jobs:
             echo "SKIP_BUILD=false" >> "$GITHUB_ENV"
           fi
 
-      - name: Import the codesign cert
+      - name: 导入代码签名证书
         if: env.MACOS_P12_BASE64 != null && env.SKIP_BUILD != 'true'
         uses: apple-actions/import-codesign-certs@253ddeeac23f2bdad1646faac5c8c2832e800071 # v1
         with:
@@ -149,13 +150,13 @@ jobs:
           p12-password: ${{ secrets.MACOS_P12_PASSWORD }}
           keychain: rustdesk
 
-      - name: Check sign and import sign key
+      - name: 检查签名并导入签名密钥
         if: env.MACOS_P12_BASE64 != null && env.SKIP_BUILD != 'true'
         run: |
           security default-keychain -s rustdesk.keychain
           security find-identity -v
 
-      - name: Import notarize key
+      - name: 导入公证密钥
         if: env.MACOS_P12_BASE64 != null && env.SKIP_BUILD != 'true'
         uses: timheuer/base64-to-file@adaa40c0c581f276132199d4cf60afa07ce60eac # v1.2
         with:
@@ -164,7 +165,7 @@ jobs:
           fileDir: ${{ github.workspace }}
           encodedString: ${{ secrets.MACOS_NOTARIZE_JSON }}
 
-      - name: Install rcodesign tool
+      - name: 安装 rcodesign 工具
         if: env.MACOS_P12_BASE64 != null && env.SKIP_BUILD != 'true'
         shell: bash
         run: |
@@ -174,7 +175,7 @@ jobs:
           mv apple-codesign-0.22.0-macos-universal/rcodesign /usr/local/bin
           popd
 
-      - name: Install build runtime
+      - name: 安装构建运行时
         if: env.SKIP_BUILD != 'true'
         run: |
           brew install llvm create-dmg
@@ -185,7 +186,7 @@ jobs:
               brew install pkg-config
           fi
 
-      - name: Install NASM
+      - name: 安装 NASM
         if: env.SKIP_BUILD != 'true'
         run: |
           # Install NASM 2.16.x from official release.
@@ -197,7 +198,7 @@ jobs:
           sudo cp nasm-2.16.03/nasm /usr/local/bin/nasm
           nasm --version
 
-      - name: Install flutter
+      - name: 安装 Flutter
         if: env.SKIP_BUILD != 'true'
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
@@ -205,7 +206,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      - name: Patch flutter
+      - name: 修改 Flutter
         if: env.SKIP_BUILD != 'true'
         run: |
           cd $(dirname $(dirname $(which flutter)))
@@ -213,7 +214,7 @@ jobs:
             git apply --reverse --check ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff 2>/dev/null || git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
           fi
 
-      - name: Workaround for flutter issue
+      - name: 规避 Flutter 问题
         if: env.SKIP_BUILD != 'true'
         shell: bash
         run: |
@@ -222,7 +223,7 @@ jobs:
           sed -i -e 's/_setFramesEnabledState(false);/\/\/_setFramesEnabledState(false);/g' ../packages/flutter/lib/src/scheduler/binding.dart
           grep -n '_setFramesEnabledState(false);' ../packages/flutter/lib/src/scheduler/binding.dart
 
-      - name: Install Rust toolchain
+      - name: 安装 Rust 工具链
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: ${{ env.MAC_RUST_VERSION }}
@@ -233,21 +234,21 @@ jobs:
         with:
           prefix-key: ${{ matrix.job.os }}
 
-      - name: Restore bridge files
+      - name: 恢复桥接文件
         if: env.SKIP_BUILD != 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: bridge-artifact
           path: ./
 
-      - name: Setup vcpkg with Github Actions binary cache
+      - name: 配置 vcpkg 与 GitHub Actions 二进制缓存
         if: env.SKIP_BUILD != 'true'
         uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
         with:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      - name: Install vcpkg dependencies
+      - name: 安装 vcpkg 依赖
         if: env.SKIP_BUILD != 'true'
         run: |
           if ! $VCPKG_ROOT/vcpkg \
@@ -264,7 +265,7 @@ jobs:
           fi
           head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
 
-      - name: Show version information (Rust, cargo, Clang)
+      - name: 显示版本信息（Rust、cargo、Clang）
         if: env.SKIP_BUILD != 'true'
         shell: bash
         run: |
@@ -275,7 +276,7 @@ jobs:
           cargo -V
           rustc -V
 
-      - name: Build rustdesk
+      - name: 编译 RustDesk
         if: env.SKIP_BUILD != 'true'
         run: |
           if [ "${{ matrix.job.target }}" = "aarch64-apple-darwin" ]; then
@@ -288,7 +289,7 @@ jobs:
           fi
           ./build.py --flutter --hwcodec --unix-file-copy-paste ${{ matrix.job.extra-build-args }}
 
-      - name: Upload template to Release
+      - name: 上传模板到 Release
         if: ${{ github.event_name == 'workflow_dispatch' && env.SKIP_BUILD != 'true' }}
         shell: bash
         env:
@@ -300,7 +301,7 @@ jobs:
             "${{ env.VERSION }}" "${TREE_HASH}" \
             rustdesk-template-build-${{ matrix.job.arch }}.tar.gz
 
-      - name: Inject custom client files
+      - name: 注入自定义客户端文件
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         shell: bash
         run: |
@@ -317,20 +318,20 @@ jobs:
             echo "Injected logo: $(basename "${LOGO}")"
           done
 
-      - name: create unsigned dmg
+      - name: 生成未签名 DMG
         run: |
           CREATE_DMG="$(command -v create-dmg)"
           CREATE_DMG="$(readlink -f "$CREATE_DMG")"
           sed -i -e 's/MAXIMUM_UNMOUNTING_ATTEMPTS=3/MAXIMUM_UNMOUNTING_ATTEMPTS=7/' "$CREATE_DMG"
           create-dmg --icon "RustDesk.app" 200 190 --hide-extension "RustDesk.app" --window-size 800 400 --app-drop-link 600 185 rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg ./flutter/build/macos/Build/Products/Release/RustDesk.app
 
-      - name: Upload unsigned macOS app
+      - name: 上传未签名 macOS 应用
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rustdesk-unsigned-macos-${{ matrix.job.arch }}
           path: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg # can not upload the directory directly or tar.gz, which destroy the link structure, causing the codesign failed
 
-      - name: Codesign app and create signed dmg
+      - name: 签名应用并生成已签名的 DMG
         if: env.MACOS_P12_BASE64 != null
         run: |
           # Patch create-dmg to give more attempts to unmount image
@@ -352,7 +353,7 @@ jobs:
           # notarize the rustdesk-${{ env.VERSION }}.dmg
           rcodesign notary-submit --api-key-path ${{ github.workspace }}/rustdesk.json  --staple rustdesk-${{ env.VERSION }}.dmg
 
-      - name: Rename rustdesk
+      - name: 重命名 RustDesk
         shell: bash
         env:
           VERSION: ${{ env.VERSION }}
@@ -364,15 +365,16 @@ jobs:
           test -f "rustdesk-${VERSION}-${ARCH}.dmg"
 
 
-      - name: Checkout generator scripts
+      - name: 检出生成器脚本
         if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          submodules: 'false'
           path: generator-scripts
           sparse-checkout: .github/scripts
           clean: false
 
-      - name: Upload artifacts to console
+      - name: 上传构建产物到控制台
         if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
         shell: bash
         run: |

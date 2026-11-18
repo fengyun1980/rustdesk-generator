@@ -1,4 +1,4 @@
-name: Build the flutter version of the RustDesk
+name: 构建 Flutter 版 RustDesk
 
 on:
   workflow_call:
@@ -87,12 +87,12 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: rustdesk/rustdesk
-          submodules: recursive
+          submodules: 'false'
 
-      - name: Install Syft
+      - name: 安装 Syft
         uses: anchore/sbom-action/download-syft@v0
 
-      - name: Generate SBOM
+      - name: 生成 SBOM
         run: |
           syft dir:. \
             -o cyclonedx-json=rustdesk.sbom.json

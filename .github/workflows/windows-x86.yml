@@ -1,4 +1,4 @@
-name: Build RustDesk for Windows x86 (sciter)
+name: 构建 RustDesk（Windows x86 sciter）
 
 permissions:
   contents: write
@@ -90,26 +90,27 @@ jobs:
               vcpkg-triplet: x86-windows-static,
             }
     steps:
-      - name: Export GitHub Actions cache environment variables
+      - name: 导出 GitHub Actions 缓存环境变量
         uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-      - name: Checkout source code
+      - name: 检出源代码
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: rustdesk/rustdesk
-          submodules: recursive
+          submodules: 'false'
 
-      - name: Checkout generator scripts
+      - name: 检出生成器脚本
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          submodules: 'false'
           path: generator-scripts
           sparse-checkout: .github/scripts
 
-      - name: Fetch custom client config
+      - name: 获取自定义客户端配置
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         shell: bash
         run: |
@@ -118,7 +119,7 @@ jobs:
             "${{ inputs.build-token }}" \
             ./custom-config
 
-      - name: Try restore template
+      - name: 尝试恢复模板
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         id: restore-template
         shell: bash
@@ -137,13 +138,13 @@ jobs:
             echo "SKIP_BUILD=false" >> "$GITHUB_ENV"
           fi
 
-      - name: Install LLVM and Clang
+      - name: 安装 LLVM 和 Clang
         if: env.SKIP_BUILD != 'true'
         uses: rustdesk-org/install-llvm-action-32bit@6aa7d9ad3df84dff01cd4596dd0fc880a7f47fce # no release tag; commit 2026-05-26
         with:
           version: ${{ env.LLVM_VERSION }}
 
-      - name: Install Rust toolchain
+      - name: 安装 Rust 工具链
         shell: bash
         run: |
           # Sciter's abi_thiscall feature requires nightly Rust.
@@ -163,7 +164,7 @@ jobs:
         with:
           prefix-key: ${{ matrix.job.os }}-sciter
 
-      - name: Setup vcpkg with Github Actions binary cache
+      - name: 配置 vcpkg 与 GitHub Actions 二进制缓存
         if: env.SKIP_BUILD != 'true'
         uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
         with:
@@ -171,7 +172,7 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      - name: Install vcpkg dependencies
+      - name: 安装 vcpkg 依赖
         if: env.SKIP_BUILD != 'true'
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
@@ -192,7 +193,7 @@ jobs:
           head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
         shell: bash
 
-      - name: Build rustdesk
+      - name: 编译 RustDesk
         if: env.SKIP_BUILD != 'true'
         id: build
         shell: bash
@@ -214,7 +215,7 @@ jobs:
           rm -rf ./usbmmidd_v2/deviceinstaller.exe ./usbmmidd_v2/usbmmidd.bat
           mv ./usbmmidd_v2 ./Release || true
 
-      - name: find Runner.res
+      - name: 查找 Runner.res
         if: env.SKIP_BUILD != 'true'
         # Windows: find Runner.res (compiled from ./flutter/windows/runner/Runner.rc), copy to ./Runner.res
         # Runner.rc does not contain actual version, but Runner.res does
@@ -231,7 +232,7 @@ jobs:
             ls -l ./libs/portable/Runner.res;
           fi
 
-      - name: Upload template to Release
+      - name: 上传模板到 Release
         if: ${{ github.event_name == 'workflow_dispatch' && env.SKIP_BUILD != 'true' }}
         shell: bash
         env:
@@ -243,7 +244,7 @@ jobs:
             "${{ env.VERSION }}" "${TREE_HASH}" \
             rustdesk-template-build-${{ matrix.job.arch }}.tar.gz
 
-      - name: Inject custom client files
+      - name: 注入自定义客户端文件
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend-url != '' }}
         shell: bash
         run: |
@@ -259,20 +260,20 @@ jobs:
             echo "Injected logo: $(basename "${LOGO}")"
           done
 
-      - name: Upload unsigned
+      - name: 上传未签名文件
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rustdesk-unsigned-windows-${{ matrix.job.arch }}
           path: Release
 
-      - name: Sign rustdesk files
+      - name: 签名 RustDesk 文件
         if: env.SIGN_BASE_URL != ''
         shell: bash
         run: |
           pip3 install requests
           SIGN_BASE_URL=${{ env.SIGN_BASE_URL }} SIGN_API_KEY=${{ secrets.SIGN_API_KEY }} python3 generator-scripts/.github/scripts/sign-files.py sign_files ./Release/
 
-      - name: Verify template payload signatures
+      - name: 校验模板文件签名
         if: env.SIGN_BASE_URL != ''
         shell: powershell
         run: |
@@ -283,7 +284,7 @@ jobs:
               if ($signature.Status -ne 'Valid') { throw "Invalid template payload signature: $($_.FullName) ($($signature.Status))" }
             }
 
-      - name: Build template packer
+      - name: 构建模板打包器
         if: env.SIGN_BASE_URL != ''
         shell: bash
         run: |
@@ -295,7 +296,7 @@ jobs:
           mkdir -p ./packer-template
           cp ./target/${{ matrix.job.target }}/release/rustdesk-portable-packer.exe ./packer-template/rustdesk-template-${{ matrix.job.arch }}.exe
 
-      - name: Upload unsigned template packer
+      - name: 上传未签名模板打包器
         if: env.SIGN_BASE_URL != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -303,7 +304,7 @@ jobs:
           path: ./packer-template
           if-no-files-found: error
 
-      - name: Build self-extracted executable
+      - name: 构建自解压可执行文件
         shell: bash
         run: |
           sed -i '/dpiAware/d' res/manifest.xml
@@ -314,22 +315,23 @@ jobs:
           mkdir -p ./SignOutput
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-sciter.exe
 
-      - name: Sign rustdesk self-extracted file
+      - name: 签名 RustDesk 自解压文件
         if: env.SIGN_BASE_URL != ''
         shell: bash
         run: |
           SIGN_BASE_URL=${{ env.SIGN_BASE_URL }} SIGN_API_KEY=${{ secrets.SIGN_API_KEY }} python3 generator-scripts/.github/scripts/sign-files.py sign_files ./SignOutput/
 
 
-      - name: Checkout generator scripts
+      - name: 检出生成器脚本
         if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          submodules: 'false'
           path: generator-scripts
           sparse-checkout: .github/scripts
           clean: false
 
-      - name: Upload artifacts to console
+      - name: 上传构建产物到控制台
         if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
         shell: bash
         run: |

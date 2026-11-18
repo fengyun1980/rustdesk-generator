@@ -1,4 +1,4 @@
-name: Nightly
+name: Nightly（每日构建）
 
 on:
   schedule:
@@ -18,6 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          submodules: 'false'
           fetch-depth: 0
       - id: check
         run: |
@@ -53,6 +54,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: 'false'
 
       - uses: actions/setup-node@v4
         with:
@@ -69,24 +72,24 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools (Linux ARM64)
+      - name: 安装交叉编译工具（Linux ARM64）
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
           echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc' >> $GITHUB_ENV
 
-      - name: Build backend
+      - name: 编译后端
         run: cargo build --release --target ${{ matrix.target }} --manifest-path backend/Cargo.toml
 
-      - name: Rename binary (Windows)
+      - name: 重命名二进制文件（Windows）
         if: matrix.target == 'x86_64-pc-windows-msvc'
         shell: bash
         run: |
           cp backend/target/${{ matrix.target }}/release/rustdesk-generator-backend.exe \
              rustdesk-generator-${{ matrix.target }}.exe
 
-      - name: Rename binary (Unix)
+      - name: 重命名二进制文件（Unix）
         if: matrix.target != 'x86_64-pc-windows-msvc'
         run: |
           cp backend/target/${{ matrix.target }}/release/rustdesk-generator-backend \
@@ -108,6 +111,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          submodules: 'false'
           fetch-depth: 0
 
       - uses: actions/download-artifact@v4
@@ -116,13 +120,13 @@ jobs:
           path: binaries/
           merge-multiple: true
 
-      - name: Delete old nightly tag and release
+      - name: 删除旧的 Nightly 标签和 Release
         run: |
           gh release delete nightly --yes 2>/dev/null || true
           git push origin --delete nightly 2>/dev/null || true
           git tag -d nightly 2>/dev/null || true
 
-      - name: Generate changelog
+      - name: 生成变更日志
         id: changelog
         uses: TriPSs/conventional-changelog-action@v6
         with:
@@ -130,13 +134,13 @@ jobs:
           skip-tag: 'true'
           skip-commit: 'true'
 
-      - name: Prepare release body and create nightly tag
+      - name: 准备 Release 内容并创建 Nightly 标签
         run: |
           printf "${{ steps.changelog.outputs.clean_changelog }}" > CHANGELOG.md
           git tag nightly
           git push origin nightly
 
-      - name: Create nightly release
+      - name: 创建 Nightly Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: nightly
@@ -152,6 +156,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: 'false'
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v4
