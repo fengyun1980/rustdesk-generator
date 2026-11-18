@@ -116,7 +116,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: rustdesk/rustdesk
-          submodules: 'false'
+          submodules: recursive
 
       - name: 检出生成器脚本
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
