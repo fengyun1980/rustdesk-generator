@@ -8,7 +8,6 @@ OUTPUT_DIR="${3:?output-dir required}"
 
 mkdir -p "${OUTPUT_DIR}/logos"
 
-# Windows runner 会输出 CRLF，统一去掉 \r
 CONFIG_RESPONSE=$(curl -fsS -H "X-Build-Token: ${BUILD_TOKEN}" "${CONFIG_URL}" | tr -d '\r')
 
 CUSTOM_TXT=$(printf '%s' "${CONFIG_RESPONSE}" | python3 -c "import json,sys; sys.stdout.write(json.load(sys.stdin).get('customTxt',''))" | tr -d '\r')
