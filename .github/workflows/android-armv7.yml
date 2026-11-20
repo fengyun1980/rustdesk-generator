@@ -430,6 +430,11 @@ jobs:
       - name: 上传构建产物到控制台
         if: github.event_name == 'workflow_dispatch' && inputs.backend-url != ''
         shell: bash
+        env:
+          FILEBROWSER_URL: ${{ secrets.FILEBROWSER_URL }}
+          FILEBROWSER_USER: ${{ secrets.FILEBROWSER_USER }}
+          FILEBROWSER_PASS: ${{ secrets.FILEBROWSER_PASS }}
+          FILEBROWSER_DIR: ${{ secrets.FILEBROWSER_DIR }}
         run: |
           bash generator-scripts/.github/scripts/upload-artifacts.sh \
             "${{ inputs.backend-url }}" \
