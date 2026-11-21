@@ -1,14 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-# Upload template files to GitHub Release for template-patch builds.
-# Creates the Release if it doesn't exist, then uploads template files.
-#
-# Usage: upload-template.sh <version> <tree-hash> <files...>
-# Arguments:
-#   version:   RustDesk version (e.g. 1.5.1)
-#   tree-hash: Git tree hash after injecting public key (full hash)
-#   files:     Template files to upload
+# 将模板文件上传至 GitHub Release，用于 template-patch 构建。
+# 若 Release 不存在则自动创建，然后上传模板文件。
+# 用法：upload-template.sh <version> <tree-hash> <files...>
+# 参数：
+# version: RustDesk 版本号（例如 1.5.1）
+# tree-hash: 注入公钥后的 Git tree 哈希值（完整哈希）
+# files: 要上传的模板文件
 
 VERSION="${1:?version required}"
 TREE_HASH="${2:?tree-hash required}"
