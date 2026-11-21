@@ -52,7 +52,7 @@ print(s[:50])
 [ -n "$SAFE_APP_NAME" ] && echo "Artifact prefix: ${SAFE_APP_NAME}" \
   || echo "No custom app name, keep default artifact names"
 
-# Login: the endpoint returns the JWT as a raw text body.
+# 登录：该端点以纯文本形式返回 JWT.
 TOKEN="$(curl -fsS -X POST "${FB}/api/login" \
   -H 'Content-Type: application/json' \
   -d "{\"username\":\"${FILEBROWSER_USER}\",\"password\":\"${FILEBROWSER_PASS}\"}")"
@@ -74,19 +74,19 @@ for f in "$ARTIFACT_DIR"/*; do
   remote_path="${encoded_path}"
   size="$(wc -c < "$f" | tr -d ' ')"
 
-  # Create the upload slot (TUS). override=true lets GitHub re-runs overwrite.
+  # 创建上传槽位（TUS）。设置 override=true 可允许 GitHub 重新运行时覆盖已有内容.
   curl -fsS -X POST "${FB}/api/tus${remote_path}?override=true" \
     -H "X-Auth: ${TOKEN}" \
     -H "Upload-Length: ${size}" >/dev/null
 
-  # Stream the file bytes.
+  # 以流式方式传输文件字节.
   curl -fsS -X PATCH "${FB}/api/tus${remote_path}" \
     -H "X-Auth: ${TOKEN}" \
     -H "Content-Type: application/offset+octet-stream" \
     -H "Upload-Offset: 0" \
     --data-binary "@${f}" >/dev/null
 
-  # Create a public share and derive the direct download URL.
+  # 创建公开分享链接，并生成直接下载 URL.
   share_resp="$(curl -fsS -X POST "${FB}/api/share${remote_path}" \
     -H "X-Auth: ${TOKEN}" \
     -H 'Content-Type: application/json' \
@@ -106,7 +106,7 @@ if [ -z "$entries" ]; then
   exit 0
 fi
 
-# Report download URLs back to the console (a tiny JSON payload).
+# 将下载 URL 回传至控制台（一个小型 JSON 载荷）.
 curl -fsS -X POST "${BACKEND_URL}/upload" \
   -H "X-Build-Token: ${BUILD_TOKEN}" \
   -H 'Content-Type: application/json' \
