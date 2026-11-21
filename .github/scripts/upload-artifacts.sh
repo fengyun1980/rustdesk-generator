@@ -31,11 +31,11 @@ for f in "$ARTIFACT_DIR"/*; do
   [ -f "$f" ] || continue
   ext="$(printf '%s' "${f##*.}" | tr '[:upper:]' '[:lower:]')"
   case "$ext" in
-    apk) CATEGORY=android ;;
-    ipa) CATEGORY=apple/ipad ;;
-    dmg|pkg) CATEGORY=apple/macos ;;
-    exe|msi) CATEGORY=windows ;;
-    appimage|deb|rpm|gz) CATEGORY=linux ;;
+    apk) CATEGORY=Android ;;
+    ipa) CATEGORY=Apple/iPad ;;
+    dmg|pkg) CATEGORY=Apple/macOS ;;
+    exe|msi) CATEGORY=Windows ;;
+    appimage|deb|rpm|gz) CATEGORY=Linux ;;
   esac
   [ -n "$CATEGORY" ] && break
 done
