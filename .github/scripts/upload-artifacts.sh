@@ -24,7 +24,28 @@ ARTIFACT_DIR="${3:?artifact-dir required}"
 
 FB="${FILEBROWSER_URL%/}"
 BUILD_ID="$(basename "$BACKEND_URL")"
-DEST_DIR="${FILEBROWSER_DIR%/}/${BUILD_ID}"
+
+# 按产物扩展名归类，上传到 DIR/<平台>/<构建ID>，避免不同平台的包混在同一个目录。
+CATEGORY=""
+for f in "$ARTIFACT_DIR"/*; do
+  [ -f "$f" ] || continue
+  ext="$(printf '%s' "${f##*.}" | tr '[:upper:]' '[:lower:]')"
+  case "$ext" in
+    apk) CATEGORY=android ;;
+    ipa) CATEGORY=ios ;;
+    exe|msi) CATEGORY=windows ;;
+    dmg|pkg) CATEGORY=macos ;;
+    appimage|deb|rpm|gz) CATEGORY=linux ;;
+  esac
+  [ -n "$CATEGORY" ] && break
+done
+
+if [ -n "$CATEGORY" ]; then
+  DEST_DIR="${FILEBROWSER_DIR%/}/${CATEGORY}/${BUILD_ID}"
+else
+  DEST_DIR="${FILEBROWSER_DIR%/}/${BUILD_ID}"
+fi
+echo "Upload category: ${CATEGORY:-none}"
 
 # 读取用户自定义的应用名称，用作编译产物的文件名前缀。
 # custom.txt = base64(64 字节 Ed25519 签名 + JSON)，其中 app-name 即用户填写的名称。
