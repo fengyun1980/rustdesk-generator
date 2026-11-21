@@ -67,8 +67,10 @@ for f in "$ARTIFACT_DIR"/*; do
     [ "$suffix" = "$name" ] && suffix="-${name}"
     name="${SAFE_APP_NAME}${suffix}"
   fi
-  # URL 编码，兼容中文、空格等名称
-  encoded_path="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "${DEST_DIR}/${name}")"
+  # URL 编码，兼容中文、空格等名称。
+  # 路径必须从 stdin 传入：Windows 运行器是 Git Bash，以参数形式传入以 "/" 开头的
+  # 路径会被 MSYS 转成 "C:/Program Files/Git/..."，导致上传目录错乱。
+  encoded_path="$(printf '%s' "${DEST_DIR}/${name}" | python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read()))')"
   remote_path="${encoded_path}"
   size="$(wc -c < "$f" | tr -d ' ')"
 
