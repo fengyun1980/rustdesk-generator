@@ -26,6 +26,32 @@ FB="${FILEBROWSER_URL%/}"
 BUILD_ID="$(basename "$BACKEND_URL")"
 DEST_DIR="${FILEBROWSER_DIR%/}/${BUILD_ID}"
 
+# 读取用户自定义的应用名称，用作编译产物的文件名前缀。
+# custom.txt = base64(64 字节 Ed25519 签名 + JSON)，其中 app-name 即用户填写的名称。
+APP_NAME=""
+if CFG_JSON="$(curl -fsS "${BACKEND_URL}/config" \
+  -H "X-Build-Token: ${BUILD_TOKEN}")"; then
+  APP_NAME="$(printf '%s' "$CFG_JSON" | python3 -c '
+import sys, json, base64
+try:
+    data = json.load(sys.stdin).get("customTxt") or ""
+    raw = base64.b64decode(data)
+    print(json.loads(raw[64:]).get("app-name") or "")
+except Exception:
+    print("")
+' 2>/dev/null)"
+fi
+
+# 去掉 Windows 文件名不允许的字符，并截断过长名称
+SAFE_APP_NAME="$(printf '%s' "$APP_NAME" | python3 -c '
+import re, sys
+s = sys.stdin.read().strip()
+s = re.sub(r"[\\/:*?\"<>|]", "_", s).strip(" .")
+print(s[:50])
+')"
+[ -n "$SAFE_APP_NAME" ] && echo "Artifact prefix: ${SAFE_APP_NAME}" \
+  || echo "No custom app name, keep default artifact names"
+
 # Login: the endpoint returns the JWT as a raw text body.
 TOKEN="$(curl -fsS -X POST "${FB}/api/login" \
   -H 'Content-Type: application/json' \
@@ -35,7 +61,15 @@ entries=""
 for f in "$ARTIFACT_DIR"/*; do
   [ -f "$f" ] || continue
   name="$(basename "$f")"
-  remote_path="${DEST_DIR}/${name}"
+  # 用自定义应用名称替换产物默认的 rustdesk 前缀（保留版本号与架构后缀）
+  if [ -n "$SAFE_APP_NAME" ]; then
+    suffix="${name#rustdesk}"
+    [ "$suffix" = "$name" ] && suffix="-${name}"
+    name="${SAFE_APP_NAME}${suffix}"
+  fi
+  # URL 编码，兼容中文、空格等名称
+  encoded_path="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "${DEST_DIR}/${name}")"
+  remote_path="${encoded_path}"
   size="$(wc -c < "$f" | tr -d ' ')"
 
   # Create the upload slot (TUS). override=true lets GitHub re-runs overwrite.
