@@ -94,11 +94,9 @@ jobs:
           @'
           .symfix
           .reload
-          sxe -c "kb; ~*k; q" av
-          bu KERNELBASE!ExitProcess "kb; ~*k; q"
-          bu ucrtbase!abort "kb; ~*k; q"
-          bu ucrtbase!exit "kb; ~*k; q"
-          bu ucrtbase!_exit "kb; ~*k; q"
+          bp ntdll!NtTerminateProcess "kb; r; ~*k; q"
+          bp kernel32!ExitProcess "kb; ~*k; q"
+          bp ucrtbase!abort "kb; ~*k; q"
           g
           '@ | Set-Content C:\work\cdbcmds.txt -Encoding ASCII
           Get-Process rustdesk -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
