@@ -10,6 +10,7 @@ permissions:
 jobs:
   diag:
     runs-on: windows-2022
+    timeout-minutes: 15
     steps:
       - name: Download our built artifact
         uses: actions/download-artifact@v4
@@ -20,103 +21,95 @@ jobs:
           repository: fengyun1980/rustdesk-generator
           github-token: ${{ github.token }}
 
-      - name: Prepare copies, extra signed variants, procdump
+      - name: Prepare variants
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force C:\work | Out-Null
-          Copy-Item -Recurse ours C:\work\orig_base
-          Copy-Item -Recurse ours C:\work\orig_renamed
-          Rename-Item C:\work\orig_renamed\rustdesk.exe RDService.exe
-          Copy-Item -Recurse ours C:\work\patched
-
-          python -m pip install --quiet cryptography
-          @'
-          import base64, json, os
-          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-          from cryptography.hazmat.primitives import serialization
-
-          priv = Ed25519PrivateKey.from_private_bytes(bytes.fromhex('5f' * 32))
-          pub = priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-          pub_b64 = base64.b64encode(pub).decode()
-          old = b'BCjRiUpyTbnrEQC5BCVVaySF1dinRDvGtkCCzlZGbKg='
-          p = os.path.join('C:/work/patched', 'librustdesk.dll')
-          data = open(p, 'rb').read()
-          assert data.count(old) == 1
-          open(p, 'wb').write(data.replace(old, pub_b64.encode()))
-
-          cfg = {
-              '09_appname_default': {'app-name': 'RustDesk'},
-              '10_appname_other': {'app-name': 'MyApp'},
-              '11_appname_rdservice': {'app-name': 'RDService'},
+          Get-ChildItem ours | Select-Object Name,Length | Format-Table -AutoSize | Out-String | Write-Host
+          Copy-Item -Recurse ours C:\work\withcustom
+          Copy-Item -Recurse ours C:\work\nocustom
+          Remove-Item C:\work\nocustom\custom.txt -Force -ErrorAction SilentlyContinue
+          Copy-Item -Recurse ours C:\work\emptycustom
+          Set-Content -Path C:\work\emptycustom\custom.txt -Value '' -NoNewline
+          Copy-Item -Recurse ours C:\work\garbage
+          Set-Content -Path C:\work\garbage\custom.txt -Value 'not-a-valid-config' -NoNewline
+          Write-Host "custom.txt sizes:"
+          foreach ($d in 'withcustom','nocustom','emptycustom','garbage') {
+            $f = "C:\work\$d\custom.txt"
+            if (Test-Path $f) { Write-Host "$d => $((Get-Item $f).Length) bytes" } else { Write-Host "$d => (no custom.txt)" }
           }
-          os.makedirs('C:/work/variants', exist_ok=True)
-          for name, c in cfg.items():
-              body = json.dumps(c, separators=(',', ':')).encode()
-              open('C:/work/variants/' + name + '.txt', 'wb').write(base64.b64encode(priv.sign(body) + body))
-          '@ | Set-Content -Path gen2.py -Encoding UTF8
-          python gen2.py
 
-          Invoke-WebRequest -Uri https://download.sysinternals.com/files/Procdump.zip -OutFile procdump.zip
-          Expand-Archive procdump.zip -DestinationPath C:\procdump -Force
-          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\rustdesk.exe" /v DumpFolder /t REG_EXPAND_SZ /d "C:\dumps" /f | Out-Null
-          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\rustdesk.exe" /v DumpType /t REG_DWORD /d 2 /f | Out-Null
-          New-Item -ItemType Directory -Force C:\dumps | Out-Null
-
-      - name: Run cases
+      - name: Run variant matrix
         shell: pwsh
+        continue-on-error: true
         run: |
           $ErrorActionPreference = 'Continue'
           function Kill-All {
             Get-Process rustdesk,RDService,MyApp -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           }
-          function Run-Case([string]$label, [string]$dir, [string]$exeName, [string[]]$args) {
+          function Run-Case([string]$label, [string]$dir, [string[]]$args) {
             Write-Host ""
             Write-Host "===================== CASE: $label ====================="
             Kill-All
             Start-Sleep -Seconds 1
             Remove-Item -Recurse -Force "$env:APPDATA\RDService", "$env:APPDATA\RustDesk", "$env:APPDATA\MyApp" -ErrorAction SilentlyContinue
             $out = "C:\work\$label.out.txt"; $err = "C:\work\$label.err.txt"
-            $p = Start-Process -FilePath (Join-Path $dir $exeName) -WorkingDirectory $dir -ArgumentList $args `
+            $p = Start-Process -FilePath (Join-Path $dir 'rustdesk.exe') -WorkingDirectory $dir -ArgumentList $args `
                  -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -NoNewWindow
-            $exited = $p.WaitForExit(12000)
-            Write-Host "ExitedWithin12s=$exited"
+            $exited = $p.WaitForExit(8000)
+            Write-Host "ExitedWithin8s=$exited"
             if ($exited) { Write-Host "ExitCode=$($p.ExitCode)" }
-            Start-Sleep -Seconds 1
-            Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -in @('rustdesk','RDService','MyApp') } | ForEach-Object {
-              Write-Host ("PROC pid={0} name={1} title='{2}'" -f $_.Id, $_.ProcessName, $_.MainWindowTitle)
-            }
             Write-Host "--- stderr ---"; Get-Content $err -ErrorAction SilentlyContinue | Write-Host
-            Write-Host "--- log tails ---"
-            foreach ($d in "$env:APPDATA\RDService\log", "$env:APPDATA\RustDesk\log", "$env:APPDATA\MyApp\log") {
-              if (Test-Path "$d\rustdesk_rCURRENT.log") { Write-Host "[$d]"; Get-Content "$d\rustdesk_rCURRENT.log" -Tail 8 | Write-Host }
+            Write-Host "--- log tail ---"
+            foreach ($d in "$env:APPDATA\RDService\log", "$env:APPDATA\RustDesk\log") {
+              if (Test-Path "$d\rustdesk_rCURRENT.log") { Write-Host "[$d]"; Get-Content "$d\rustdesk_rCURRENT.log" -Tail 5 | Write-Host }
             }
-            Write-Host "--- event log ---"
-            Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddMinutes(-3)} -ErrorAction SilentlyContinue |
-              Where-Object { $_.Id -in 1000,1001,1002,1026 } |
-              ForEach-Object { Write-Host ("Id={0} {1}`n{2}" -f $_.Id, $_.ProviderName, $_.Message) }
             Kill-All
             Start-Sleep -Seconds 1
           }
+          Run-Case 'nocustom' 'C:\work\nocustom' @()
+          Run-Case 'emptycustom' 'C:\work\emptycustom' @()
+          Run-Case 'garbage' 'C:\work\garbage' @()
+          Run-Case 'withcustom' 'C:\work\withcustom' @()
 
-          Run-Case 'A_renamed_exe' 'C:\work\orig_renamed' 'RDService.exe' @()
-          Run-Case 'B_original_exe' 'C:\work\orig_base' 'rustdesk.exe' @()
-          Copy-Item 'C:\work\variants\09_appname_default.txt' 'C:\work\patched\custom.txt' -Force
-          Run-Case 'C_appname_default' 'C:\work\patched' 'rustdesk.exe' @()
-          Copy-Item 'C:\work\variants\10_appname_other.txt' 'C:\work\patched\custom.txt' -Force
-          Run-Case 'D_appname_other' 'C:\work\patched' 'rustdesk.exe' @()
+      - name: Locate cdb
+        shell: pwsh
+        run: |
+          $cands = @(
+            'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe',
+            'C:\Program Files\Windows Kits\10\Debuggers\x64\cdb.exe'
+          )
+          $cdb = $null
+          foreach ($c in $cands) { if (Test-Path $c) { $cdb = $c; break } }
+          if (-not $cdb) { $cdb = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits' -Recurse -Filter cdb.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName }
+          Write-Host "CDB=$cdb"
+          if ($cdb) { $cdb | Set-Content C:\work\cdbpath.txt }
 
-          Write-Host ""
-          Write-Host "===================== PROCDUMP: original ====================="
-          Kill-All
-          Remove-Item -Recurse -Force "$env:APPDATA\RDService" -ErrorAction SilentlyContinue
-          & "C:\procdump\procdump64.exe" -accepteula -ma -e -t -x C:\dumps C:\work\orig_base\rustdesk.exe 2>&1 | Out-String | Write-Host
-          Get-ChildItem C:\dumps -ErrorAction SilentlyContinue | Select-Object Name,Length | Format-Table -AutoSize | Out-String | Write-Host
-          Kill-All
-
-      - name: Upload dumps
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: crash-dumps
-          path: C:\dumps\*.dmp
-          if-no-files-found: ignore
+      - name: Debug crash with cdb
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          if (-not (Test-Path C:\work\cdbpath.txt)) { Write-Host "no cdb, skip"; exit 0 }
+          $cdb = Get-Content C:\work\cdbpath.txt
+          @'
+          .symfix
+          .reload
+          sxe -c "kb; ~*k; q" av
+          bu KERNELBASE!ExitProcess "kb; ~*k; q"
+          bu ucrtbase!abort "kb; ~*k; q"
+          bu ucrtbase!exit "kb; ~*k; q"
+          bu ucrtbase!_exit "kb; ~*k; q"
+          g
+          '@ | Set-Content C:\work\cdbcmds.txt -Encoding ASCII
+          Get-Process rustdesk -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 1
+          Remove-Item -Recurse -Force "$env:APPDATA\RDService", "$env:APPDATA\RustDesk" -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath $cdb -ArgumentList @('-cf','C:\work\cdbcmds.txt','C:\work\withcustom\rustdesk.exe') `
+               -WorkingDirectory 'C:\work\withcustom' -RedirectStandardOutput 'C:\work\cdb.out.txt' -RedirectStandardError 'C:\work\cdb.err.txt' -PassThru -NoNewWindow
+          $done = $p.WaitForExit(120000)
+          Write-Host "cdbDone=$done"
+          if (-not $done) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+          Write-Host "=========== CDB STDOUT ==========="
+          Get-Content C:\work\cdb.out.txt -ErrorAction SilentlyContinue | Write-Host
+          Write-Host "=========== CDB STDERR ==========="
+          Get-Content C:\work\cdb.err.txt -ErrorAction SilentlyContinue | Write-Host
