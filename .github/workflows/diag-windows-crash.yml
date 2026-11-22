@@ -20,9 +20,15 @@ jobs:
           repository: fengyun1980/rustdesk-generator
           github-token: ${{ github.token }}
 
-      - name: Patch custom-client pubkey and generate signed configs
+      - name: Prepare copies, extra signed variants, procdump
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force C:\work | Out-Null
+          Copy-Item -Recurse ours C:\work\orig_base
+          Copy-Item -Recurse ours C:\work\orig_renamed
+          Rename-Item C:\work\orig_renamed\rustdesk.exe RDService.exe
+          Copy-Item -Recurse ours C:\work\patched
+
           python -m pip install --quiet cryptography
           @'
           import base64, json, os
@@ -33,94 +39,84 @@ jobs:
           pub = priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
           pub_b64 = base64.b64encode(pub).decode()
           old = b'BCjRiUpyTbnrEQC5BCVVaySF1dinRDvGtkCCzlZGbKg='
-          assert len(pub_b64) == len(old)
+          p = os.path.join('C:/work/patched', 'librustdesk.dll')
+          data = open(p, 'rb').read()
+          assert data.count(old) == 1
+          open(p, 'wb').write(data.replace(old, pub_b64.encode()))
 
-          path = os.path.join('ours', 'librustdesk.dll')
-          data = open(path, 'rb').read()
-          cnt = data.count(old)
-          print('pubkey occurrences in dll:', cnt)
-          assert cnt == 1
-          open(path, 'wb').write(data.replace(old, pub_b64.encode()))
-          print('patched pubkey ->', pub_b64)
-
-          app = 'RDService'
-          settings = {
-              'custom-rendezvous-server': 'rdc.tmnas.top:21116',
-              'relay-server': 'rdc.tmnas.top:21117',
-              'key': 'keoTlqSspoXJuqQ46hCilzq4tH9eYndrDhcbzOYn0k4=',
+          cfg = {
+              '09_appname_default': {'app-name': 'RustDesk'},
+              '10_appname_other': {'app-name': 'MyApp'},
+              '11_appname_rdservice': {'app-name': 'RDService'},
           }
-          base = {'app-name': app, 'password': '@1979', 'salt': 'hCoXj4kjZHiUFq9V', 'conn-type': 'both'}
-          variants = {
-              '01_full': {**base, 'default-settings': settings},
-              '02_app_only': {'app-name': app},
-              '03_no_pwd': {**{k: v for k, v in base.items() if k not in ('password', 'salt')}, 'default-settings': settings},
-              '04_no_settings': base,
-              '05_server_only': {'app-name': app, 'default-settings': {'custom-rendezvous-server': settings['custom-rendezvous-server']}},
-              '06_server_key': {'app-name': app, 'default-settings': {'custom-rendezvous-server': settings['custom-rendezvous-server'], 'key': settings['key']}},
-              '07_no_key': {'app-name': app, 'default-settings': {'custom-rendezvous-server': settings['custom-rendezvous-server'], 'relay-server': settings['relay-server']}},
-              '08_pwd_only': {'app-name': app, 'password': '@1979', 'salt': 'hCoXj4kjZHiUFq9V'},
-          }
-          os.makedirs('variants', exist_ok=True)
-          for name, cfg in variants.items():
-              body = json.dumps(cfg, separators=(',', ':')).encode()
-              sig = priv.sign(body)
-              open(os.path.join('variants', name + '.txt'), 'wb').write(base64.b64encode(sig + body))
-              print(name, body.decode())
-          '@ | Set-Content -Path gen.py -Encoding UTF8
-          python gen.py
+          os.makedirs('C:/work/variants', exist_ok=True)
+          for name, c in cfg.items():
+              body = json.dumps(c, separators=(',', ':')).encode()
+              open('C:/work/variants/' + name + '.txt', 'wb').write(base64.b64encode(priv.sign(body) + body))
+          '@ | Set-Content -Path gen2.py -Encoding UTF8
+          python gen2.py
 
-      - name: Run variant matrix
+          Invoke-WebRequest -Uri https://download.sysinternals.com/files/Procdump.zip -OutFile procdump.zip
+          Expand-Archive procdump.zip -DestinationPath C:\procdump -Force
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\rustdesk.exe" /v DumpFolder /t REG_EXPAND_SZ /d "C:\dumps" /f | Out-Null
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\rustdesk.exe" /v DumpType /t REG_DWORD /d 2 /f | Out-Null
+          New-Item -ItemType Directory -Force C:\dumps | Out-Null
+
+      - name: Run cases
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
-
-          function Show-EventLog($startTime) {
-            Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=$startTime} -ErrorAction SilentlyContinue |
-              Where-Object { $_.Id -in 1000,1001,1002,1026 } |
-              ForEach-Object { Write-Host ("[{0}] Id={1} {2}`n{3}" -f $_.TimeCreated, $_.Id, $_.ProviderName, $_.Message) }
+          function Kill-All {
+            Get-Process rustdesk,RDService,MyApp -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           }
-
-          function Invoke-Case([string]$label, [string]$variant, [string[]]$extraArgs) {
+          function Run-Case([string]$label, [string]$dir, [string]$exeName, [string[]]$args) {
             Write-Host ""
             Write-Host "===================== CASE: $label ====================="
-            Get-Process rustdesk -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Kill-All
             Start-Sleep -Seconds 1
-            Remove-Item -Recurse -Force "$env:APPDATA\RDService" -ErrorAction SilentlyContinue
-            Copy-Item "variants\$variant.txt" "C:\work\ours\custom.txt" -Force
-            $outPath = "C:\work\$label.out.txt"
-            $errPath = "C:\work\$label.err.txt"
-            $startTime = Get-Date
-            $p = Start-Process -FilePath "C:\work\ours\rustdesk.exe" -WorkingDirectory "C:\work\ours" -ArgumentList $extraArgs `
-                 -RedirectStandardOutput $outPath -RedirectStandardError $errPath -PassThru -NoNewWindow
+            Remove-Item -Recurse -Force "$env:APPDATA\RDService", "$env:APPDATA\RustDesk", "$env:APPDATA\MyApp" -ErrorAction SilentlyContinue
+            $out = "C:\work\$label.out.txt"; $err = "C:\work\$label.err.txt"
+            $p = Start-Process -FilePath (Join-Path $dir $exeName) -WorkingDirectory $dir -ArgumentList $args `
+                 -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -NoNewWindow
             $exited = $p.WaitForExit(12000)
             Write-Host "ExitedWithin12s=$exited"
             if ($exited) { Write-Host "ExitCode=$($p.ExitCode)" }
             Start-Sleep -Seconds 1
-            Get-Process rustdesk -ErrorAction SilentlyContinue | ForEach-Object {
-              Write-Host ("PROC pid={0} title='{1}'" -f $_.Id, $_.MainWindowTitle)
+            Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -in @('rustdesk','RDService','MyApp') } | ForEach-Object {
+              Write-Host ("PROC pid={0} name={1} title='{2}'" -f $_.Id, $_.ProcessName, $_.MainWindowTitle)
             }
-            Write-Host "--- stdout ---"
-            Get-Content $outPath -ErrorAction SilentlyContinue | Select-Object -First 3 | Write-Host
-            Write-Host "--- stderr ---"
-            Get-Content $errPath -ErrorAction SilentlyContinue | Write-Host
-            Show-EventLog $startTime
-            $log = "$env:APPDATA\RDService\log\rustdesk_rCURRENT.log"
-            if (Test-Path $log) {
-              Write-Host "--- rustdesk log tail ---"
-              Get-Content $log -Tail 15 | Write-Host
+            Write-Host "--- stderr ---"; Get-Content $err -ErrorAction SilentlyContinue | Write-Host
+            Write-Host "--- log tails ---"
+            foreach ($d in "$env:APPDATA\RDService\log", "$env:APPDATA\RustDesk\log", "$env:APPDATA\MyApp\log") {
+              if (Test-Path "$d\rustdesk_rCURRENT.log") { Write-Host "[$d]"; Get-Content "$d\rustdesk_rCURRENT.log" -Tail 8 | Write-Host }
             }
-            Get-Process rustdesk -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Write-Host "--- event log ---"
+            Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddMinutes(-3)} -ErrorAction SilentlyContinue |
+              Where-Object { $_.Id -in 1000,1001,1002,1026 } |
+              ForEach-Object { Write-Host ("Id={0} {1}`n{2}" -f $_.Id, $_.ProviderName, $_.Message) }
+            Kill-All
             Start-Sleep -Seconds 1
           }
 
-          New-Item -ItemType Directory -Force C:\work | Out-Null
-          Copy-Item -Recurse ours C:\work\ours -Force
+          Run-Case 'A_renamed_exe' 'C:\work\orig_renamed' 'RDService.exe' @()
+          Run-Case 'B_original_exe' 'C:\work\orig_base' 'rustdesk.exe' @()
+          Copy-Item 'C:\work\variants\09_appname_default.txt' 'C:\work\patched\custom.txt' -Force
+          Run-Case 'C_appname_default' 'C:\work\patched' 'rustdesk.exe' @()
+          Copy-Item 'C:\work\variants\10_appname_other.txt' 'C:\work\patched\custom.txt' -Force
+          Run-Case 'D_appname_other' 'C:\work\patched' 'rustdesk.exe' @()
 
-          Invoke-Case '01_full' '01_full' @()
-          Invoke-Case '02_app_only' '02_app_only' @()
-          Invoke-Case '03_no_pwd' '03_no_pwd' @()
-          Invoke-Case '04_no_settings' '04_no_settings' @()
-          Invoke-Case '05_server_only' '05_server_only' @()
-          Invoke-Case '06_server_key' '06_server_key' @()
-          Invoke-Case '07_no_key' '07_no_key' @()
-          Invoke-Case '08_pwd_only' '08_pwd_only' @()
+          Write-Host ""
+          Write-Host "===================== PROCDUMP: original ====================="
+          Kill-All
+          Remove-Item -Recurse -Force "$env:APPDATA\RDService" -ErrorAction SilentlyContinue
+          & "C:\procdump\procdump64.exe" -accepteula -ma -e -t -x C:\dumps C:\work\orig_base\rustdesk.exe 2>&1 | Out-String | Write-Host
+          Get-ChildItem C:\dumps -ErrorAction SilentlyContinue | Select-Object Name,Length | Format-Table -AutoSize | Out-String | Write-Host
+          Kill-All
+
+      - name: Upload dumps
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-dumps
+          path: C:\dumps\*.dmp
+          if-no-files-found: ignore
