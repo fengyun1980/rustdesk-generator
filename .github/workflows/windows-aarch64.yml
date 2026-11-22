@@ -436,12 +436,37 @@ jobs:
         shell: bash
         run: |
           sed -i '/dpiAware/d' res/manifest.xml
+          # 安装流程用 XCOPY 复制整个目录，随后按 <app-name>.exe 创建快捷方式、注册服务并启动，
+          # 所以包内的主程序必须以自定义应用名命名（官方 RustDesk 依赖大小写不敏感才恰好成立）。
+          # 编译产物本身保持 rustdesk.exe 不变，只在打包时换成应用名，打完再还原。
+          APP_EXE="rustdesk.exe"
+          if [ -f ./rustdesk/custom.txt ]; then
+            APP_NAME="$(python3 - ./rustdesk/custom.txt <<'PY'
+import base64, json, sys
+try:
+    raw = open(sys.argv[1], "r", encoding="utf-8").read().strip()
+    print(json.loads(base64.b64decode(raw)[64:]).get("app-name") or "")
+except Exception:
+    print("")
+PY
+)"
+            if printf '%s' "$APP_NAME" | grep -Eq '^[A-Za-z0-9._ -]+$'; then
+              mv ./rustdesk/rustdesk.exe "./rustdesk/${APP_NAME}.exe"
+              APP_EXE="${APP_NAME}.exe"
+              echo "Packaged main executable: ${APP_EXE}"
+            elif [ -n "$APP_NAME" ]; then
+              echo "Skip executable rename: unsupported app name '${APP_NAME}'"
+            fi
+          fi
           pushd ./libs/portable
           pip3 install -r requirements.txt
-          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
+          python3 ./generate.py -f ../../rustdesk/ -o . -e "../../rustdesk/${APP_EXE}"
           popd
           mkdir -p ./SignOutput
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe
+          if [ "$APP_EXE" != "rustdesk.exe" ]; then
+            mv "./rustdesk/${APP_EXE}" ./rustdesk/rustdesk.exe
+          fi
 
       - name: 将 MSBuild 加入 PATH
         uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
