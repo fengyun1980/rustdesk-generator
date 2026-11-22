@@ -20,25 +20,59 @@ jobs:
           repository: fengyun1980/rustdesk-generator
           github-token: ${{ github.token }}
 
-      - name: Extract official 1.5.3 msi (admin install)
+      - name: Patch custom-client pubkey and generate signed configs
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri https://github.com/rustdesk/rustdesk/releases/download/1.5.3/rustdesk-1.5.3-x86_64.msi -OutFile official.msi
-          New-Item -ItemType Directory -Force C:\work\officialext | Out-Null
-          $p = Start-Process msiexec -ArgumentList '/a', "$PWD\official.msi", '/qn', 'TARGETDIR=C:\work\officialext' -PassThru -Wait
-          Write-Host "msiexec exit=$($p.ExitCode)"
-          Get-ChildItem C:\work\officialext -Recurse -Filter rustdesk.exe | Select-Object FullName,Length | Format-Table -AutoSize | Out-String | Write-Host
+          python -m pip install --quiet cryptography
+          @'
+          import base64, json, os
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+          from cryptography.hazmat.primitives import serialization
 
-      - name: Run comparison matrix
+          priv = Ed25519PrivateKey.from_private_bytes(bytes.fromhex('5f' * 32))
+          pub = priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+          pub_b64 = base64.b64encode(pub).decode()
+          old = b'BCjRiUpyTbnrEQC5BCVVaySF1dinRDvGtkCCzlZGbKg='
+          assert len(pub_b64) == len(old)
+
+          path = os.path.join('ours', 'librustdesk.dll')
+          data = open(path, 'rb').read()
+          cnt = data.count(old)
+          print('pubkey occurrences in dll:', cnt)
+          assert cnt == 1
+          open(path, 'wb').write(data.replace(old, pub_b64.encode()))
+          print('patched pubkey ->', pub_b64)
+
+          app = 'RDService'
+          settings = {
+              'custom-rendezvous-server': 'rdc.tmnas.top:21116',
+              'relay-server': 'rdc.tmnas.top:21117',
+              'key': 'keoTlqSspoXJuqQ46hCilzq4tH9eYndrDhcbzOYn0k4=',
+          }
+          base = {'app-name': app, 'password': '@1979', 'salt': 'hCoXj4kjZHiUFq9V', 'conn-type': 'both'}
+          variants = {
+              '01_full': {**base, 'default-settings': settings},
+              '02_app_only': {'app-name': app},
+              '03_no_pwd': {**{k: v for k, v in base.items() if k not in ('password', 'salt')}, 'default-settings': settings},
+              '04_no_settings': base,
+              '05_server_only': {'app-name': app, 'default-settings': {'custom-rendezvous-server': settings['custom-rendezvous-server']}},
+              '06_server_key': {'app-name': app, 'default-settings': {'custom-rendezvous-server': settings['custom-rendezvous-server'], 'key': settings['key']}},
+              '07_no_key': {'app-name': app, 'default-settings': {'custom-rendezvous-server': settings['custom-rendezvous-server'], 'relay-server': settings['relay-server']}},
+              '08_pwd_only': {'app-name': app, 'password': '@1979', 'salt': 'hCoXj4kjZHiUFq9V'},
+          }
+          os.makedirs('variants', exist_ok=True)
+          for name, cfg in variants.items():
+              body = json.dumps(cfg, separators=(',', ':')).encode()
+              sig = priv.sign(body)
+              open(os.path.join('variants', name + '.txt'), 'wb').write(base64.b64encode(sig + body))
+              print(name, body.decode())
+          '@ | Set-Content -Path gen.py -Encoding UTF8
+          python gen.py
+
+      - name: Run variant matrix
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
-          New-Item -ItemType Directory -Force C:\work | Out-Null
-          Copy-Item -Recurse ours C:\work\ours
-          Copy-Item -Recurse ours C:\work\ours_nocustom
-          Remove-Item C:\work\ours_nocustom\custom.txt -ErrorAction SilentlyContinue
-          $officialExe = Get-ChildItem C:\work\officialext -Recurse -Filter rustdesk.exe | Select-Object -First 1
-          if ($officialExe) { Copy-Item -Recurse $officialExe.DirectoryName C:\work\official }
 
           function Show-EventLog($startTime) {
             Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=$startTime} -ErrorAction SilentlyContinue |
@@ -46,16 +80,17 @@ jobs:
               ForEach-Object { Write-Host ("[{0}] Id={1} {2}`n{3}" -f $_.TimeCreated, $_.Id, $_.ProviderName, $_.Message) }
           }
 
-          function Invoke-Case([string]$label, [string]$dir, [string[]]$extraArgs) {
+          function Invoke-Case([string]$label, [string]$variant, [string[]]$extraArgs) {
             Write-Host ""
             Write-Host "===================== CASE: $label ====================="
-            $exe = Join-Path $dir 'rustdesk.exe'
-            if (-not (Test-Path $exe)) { Write-Host "MISSING: $exe"; return }
-            Get-ChildItem $dir | Select-Object Name,Length | Format-Table -AutoSize | Out-String | Write-Host
+            Get-Process rustdesk -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 1
+            Remove-Item -Recurse -Force "$env:APPDATA\RDService" -ErrorAction SilentlyContinue
+            Copy-Item "variants\$variant.txt" "C:\work\ours\custom.txt" -Force
             $outPath = "C:\work\$label.out.txt"
             $errPath = "C:\work\$label.err.txt"
             $startTime = Get-Date
-            $p = Start-Process -FilePath $exe -WorkingDirectory $dir -ArgumentList $extraArgs `
+            $p = Start-Process -FilePath "C:\work\ours\rustdesk.exe" -WorkingDirectory "C:\work\ours" -ArgumentList $extraArgs `
                  -RedirectStandardOutput $outPath -RedirectStandardError $errPath -PassThru -NoNewWindow
             $exited = $p.WaitForExit(12000)
             Write-Host "ExitedWithin12s=$exited"
@@ -65,22 +100,27 @@ jobs:
               Write-Host ("PROC pid={0} title='{1}'" -f $_.Id, $_.MainWindowTitle)
             }
             Write-Host "--- stdout ---"
-            Get-Content $outPath -ErrorAction SilentlyContinue | Write-Host
+            Get-Content $outPath -ErrorAction SilentlyContinue | Select-Object -First 3 | Write-Host
             Write-Host "--- stderr ---"
             Get-Content $errPath -ErrorAction SilentlyContinue | Write-Host
-            Write-Host "--- application event log ---"
             Show-EventLog $startTime
-            foreach ($logDir in "$env:APPDATA\RDService\log", "$env:APPDATA\RustDesk\log") {
-              if (Test-Path $logDir) {
-                Write-Host "--- RUSTDESK LOG: $logDir ---"
-                Get-Content "$logDir\rustdesk_rCURRENT.log" -Tail 60 -ErrorAction SilentlyContinue | Write-Host
-              }
+            $log = "$env:APPDATA\RDService\log\rustdesk_rCURRENT.log"
+            if (Test-Path $log) {
+              Write-Host "--- rustdesk log tail ---"
+              Get-Content $log -Tail 15 | Write-Host
             }
             Get-Process rustdesk -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 2
+            Start-Sleep -Seconds 1
           }
 
-          Invoke-Case 'ours-with-custom' 'C:\work\ours' @()
-          Invoke-Case 'ours-without-custom' 'C:\work\ours_nocustom' @()
-          Invoke-Case 'ours-with-custom-no-server' 'C:\work\ours' @('--no-server')
-          if (Test-Path 'C:\work\official') { Invoke-Case 'official-1.5.3' 'C:\work\official' @() } else { Write-Host "official dist not found" }
+          New-Item -ItemType Directory -Force C:\work | Out-Null
+          Copy-Item -Recurse ours C:\work\ours -Force
+
+          Invoke-Case '01_full' '01_full' @()
+          Invoke-Case '02_app_only' '02_app_only' @()
+          Invoke-Case '03_no_pwd' '03_no_pwd' @()
+          Invoke-Case '04_no_settings' '04_no_settings' @()
+          Invoke-Case '05_server_only' '05_server_only' @()
+          Invoke-Case '06_server_key' '06_server_key' @()
+          Invoke-Case '07_no_key' '07_no_key' @()
+          Invoke-Case '08_pwd_only' '08_pwd_only' @()
