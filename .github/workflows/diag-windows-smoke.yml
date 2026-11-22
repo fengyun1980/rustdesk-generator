@@ -1,0 +1,58 @@
+name: diag-windows-smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: windows-2022
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
+        with:
+          name: rustdesk-unsigned-windows-x86_64
+          path: ./dist
+          run-id: 45000206984
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 运行客户端冒烟测试
+        shell: powershell
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          cd dist
+          Get-ChildItem | Select-Object Name,Length | Format-Table -AutoSize | Out-String | Write-Host
+
+          Write-Host "===== --version ====="
+          $out = & .\rustdesk.exe --version 2>&1
+          $code = $LASTEXITCODE
+          Write-Host "exit=$code"
+          Write-Host ($out | Out-String)
+
+          Write-Host "===== start UI ====="
+          $p = Start-Process -FilePath .\rustdesk.exe -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+          Start-Sleep -Seconds 25
+          if ($p.HasExited) {
+            Write-Host "EXITED code=$($p.ExitCode)"
+          } else {
+            $proc = Get-Process -Id $p.Id -ErrorAction SilentlyContinue
+            Write-Host "RUNNING pid=$($p.Id) title=$($proc.MainWindowTitle)"
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          }
+          Write-Host "===== stdout ====="
+          if (Test-Path out.txt) { Get-Content out.txt -Raw }
+          Write-Host "===== stderr ====="
+          if (Test-Path err.txt) { Get-Content err.txt -Raw }
+
+          Write-Host "===== APPDATA dirs ====="
+          Get-ChildItem $env:APPDATA -Directory | Select-Object Name | Format-Table -AutoSize | Out-String | Write-Host
+          if (Test-Path "$env:APPDATA\RDService") {
+            Get-ChildItem "$env:APPDATA\RDService" -Recurse | Select-Object FullName | Out-String | Write-Host
+            Get-ChildItem "$env:APPDATA\RDService\log" -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host "===== LOG $($_.FullName) ====="
+              Get-Content $_.FullName -Tail 200
+            }
+          }
+          if (Test-Path "$env:LOCALAPPDATA\rustdesk") {
+            Get-ChildItem "$env:LOCALAPPDATA\rustdesk" | Select-Object Name,Length | Format-Table -AutoSize | Out-String | Write-Host
+          }
