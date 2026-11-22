@@ -25,27 +25,26 @@ jobs:
           $ErrorActionPreference = 'Continue'
           cd dist
 
-          Write-Host "===== --version via cmd ====="
-          cmd /c ".\rustdesk.exe --version & echo EXITCODE=%ERRORLEVEL%"
-
           Write-Host "===== start UI ====="
-          $p = Start-Process -FilePath .\rustdesk.exe -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
-          for ($i = 0; $i -lt 30; $i++) {
-            Start-Sleep -Seconds 1
-            $p.Refresh()
-            if ($p.HasExited) { break }
-          }
-          Write-Host "HasExited=$($p.HasExited)"
-          if ($p.HasExited) {
-            Write-Host "ExitCode=$($p.ExitCode)"
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = (Join-Path $PWD 'rustdesk.exe')
+          $psi.WorkingDirectory = $PWD.Path
+          $psi.UseShellExecute = $false
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError = $true
+          $psi.CreateNoWindow = $true
+          $proc = [System.Diagnostics.Process]::Start($psi)
+          $exited = $proc.WaitForExit(20000)
+          Write-Host "ExitedWithin20s=$exited"
+          if ($exited) {
+            Write-Host "ExitCode=$($proc.ExitCode)"
+            Write-Host "===== stdout ====="
+            Write-Host ($proc.StandardOutput.ReadToEnd())
+            Write-Host "===== stderr ====="
+            Write-Host ($proc.StandardError.ReadToEnd())
           }
           Write-Host "processes:"
-          Get-Process | Where-Object { $_.ProcessName -like '*rustdesk*' -or $_.ProcessName -like '*RuntimeBroker*' } | Select-Object Id,ProcessName,MainWindowTitle | Format-Table -AutoSize | Out-String | Write-Host
-
-          Write-Host "===== stdout ====="
-          if (Test-Path out.txt) { Get-Content out.txt -Raw }
-          Write-Host "===== stderr ====="
-          if (Test-Path err.txt) { Get-Content err.txt -Raw }
+          Get-Process | Where-Object { $_.ProcessName -like '*rustdesk*' } | Select-Object Id,ProcessName,MainWindowTitle | Format-Table -AutoSize | Out-String | Write-Host
 
           Write-Host "===== log ====="
           Get-ChildItem "$env:APPDATA\RDService\log\*.log" -ErrorAction SilentlyContinue | ForEach-Object {
