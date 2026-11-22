@@ -441,15 +441,7 @@ jobs:
           # 编译产物本身保持 rustdesk.exe 不变，只在打包时换成应用名，打完再还原。
           APP_EXE="rustdesk.exe"
           if [ -f ./rustdesk/custom.txt ]; then
-            APP_NAME="$(python3 - ./rustdesk/custom.txt <<'PY'
-import base64, json, sys
-try:
-    raw = open(sys.argv[1], "r", encoding="utf-8").read().strip()
-    print(json.loads(base64.b64decode(raw)[64:]).get("app-name") or "")
-except Exception:
-    print("")
-PY
-)"
+            APP_NAME="$(python3 -c 'import base64,json,sys;raw=open(sys.argv[1]).read().strip();print(json.loads(base64.b64decode(raw)[64:]).get("app-name") or "")' ./rustdesk/custom.txt 2>/dev/null)"
             if printf '%s' "$APP_NAME" | grep -Eq '^[A-Za-z0-9._ -]+$'; then
               mv ./rustdesk/rustdesk.exe "./rustdesk/${APP_NAME}.exe"
               APP_EXE="${APP_NAME}.exe"
