@@ -1,0 +1,95 @@
+name: diag-windows-crash
+on:
+  push:
+    paths:
+      - '.github/workflows/diag-windows-crash.yml'
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  diag:
+    runs-on: windows-2022
+    steps:
+      - name: Download our built artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rustdesk-unsigned-windows-x86_64
+          path: ours
+          run-id: 45000206984
+          repository: fengyun1980/rustdesk-generator
+          github-token: ${{ github.token }}
+
+      - name: Download official 1.5.3 msi
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://github.com/rustdesk/rustdesk/releases/download/1.5.3/rustdesk-1.5.3-x86_64.msi -OutFile official.msi
+          & "C:\Program Files\7-Zip\7z.exe" x official.msi -ooffmsi -y | Select-Object -Last 3
+          Get-ChildItem offmsi -Recurse -File | Select-Object FullName,Length | Format-Table -AutoSize | Out-String | Write-Host
+
+      - name: Run comparison matrix
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          New-Item -ItemType Directory -Force C:\work | Out-Null
+          Remove-Item C:\work\* -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item -Recurse ours C:\work\ours
+          Copy-Item -Recurse ours C:\work\ours_nocustom
+          Remove-Item C:\work\ours_nocustom\custom.txt -ErrorAction SilentlyContinue
+
+          $officialExe = Get-ChildItem offmsi -Recurse -Filter rustdesk.exe | Select-Object -First 1
+          if ($officialExe) { Copy-Item -Recurse $officialExe.DirectoryName C:\work\official }
+
+          function Show-EventLog($startTime) {
+            Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=$startTime} -ErrorAction SilentlyContinue |
+              Where-Object { $_.Id -in 1000,1001,1002,1026 } |
+              ForEach-Object { Write-Host ("[{0}] Id={1} {2}`n{3}" -f $_.TimeCreated, $_.Id, $_.ProviderName, $_.Message) }
+          }
+
+          function Invoke-Case([string]$label, [string]$dir, [string[]]$extraArgs) {
+            Write-Host ""
+            Write-Host "===================== CASE: $label ====================="
+            $exe = Join-Path $dir 'rustdesk.exe'
+            if (-not (Test-Path $exe)) { Write-Host "MISSING: $exe"; return }
+            Get-ChildItem $dir | Select-Object Name,Length | Format-Table -AutoSize | Out-String | Write-Host
+            $startTime = Get-Date
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = $exe
+            $psi.WorkingDirectory = $dir
+            foreach ($a in $extraArgs) { $psi.ArgumentList.Add($a) }
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $p = [System.Diagnostics.Process]::new()
+            $p.StartInfo = $psi
+            $null = $p.Start()
+            $outTask = $p.StandardOutput.ReadToEndAsync()
+            $errTask = $p.StandardError.ReadToEndAsync()
+            $exited = $p.WaitForExit(10000)
+            Write-Host "ExitedWithin10s=$exited"
+            if ($exited) { Write-Host "ExitCode=$($p.ExitCode)" }
+            Start-Sleep -Seconds 1
+            Get-Process rustdesk -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host ("PROC pid={0} title='{1}'" -f $_.Id, $_.MainWindowTitle)
+            }
+            Write-Host "--- stdout ---"
+            Write-Host $outTask.Result
+            Write-Host "--- stderr ---"
+            Write-Host $errTask.Result
+            Write-Host "--- application event log ---"
+            Show-EventLog $startTime
+            foreach ($logDir in "$env:APPDATA\RDService\log", "$env:APPDATA\RustDesk\log") {
+              if (Test-Path $logDir) {
+                Write-Host "--- RUSTDESK LOG: $logDir ---"
+                Get-ChildItem $logDir | Select-Object Name,Length,LastWriteTime | Format-Table -AutoSize | Out-String | Write-Host
+                Get-Content "$logDir\rustdesk_rCURRENT.log" -Tail 60 -ErrorAction SilentlyContinue | Write-Host
+              }
+            }
+            Get-Process rustdesk -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+          }
+
+          Invoke-Case 'ours-with-custom' 'C:\work\ours' @()
+          Invoke-Case 'ours-without-custom' 'C:\work\ours_nocustom' @()
+          Invoke-Case 'ours-with-custom-no-server' 'C:\work\ours' @('--no-server')
+          if (Test-Path 'C:\work\official') { Invoke-Case 'official-1.5.3' 'C:\work\official' @() } else { Write-Host "official dist not found" }
