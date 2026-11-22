@@ -275,10 +275,19 @@ jobs:
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
         run: |
-          if ! $VCPKG_ROOT/vcpkg \
-            install \
-            --triplet ${{ matrix.job.vcpkg-triplet }} \
-            --x-install-root="$VCPKG_ROOT/installed"; then
+          ok=0
+          for i in 1 2 3; do
+            if $VCPKG_ROOT/vcpkg \
+              install \
+              --triplet ${{ matrix.job.vcpkg-triplet }} \
+              --x-install-root="$VCPKG_ROOT/installed"; then
+              ok=1
+              break
+            fi
+            echo "vcpkg install failed (attempt $i/3), retrying in 20s..."
+            sleep 20
+          done
+          if [ "$ok" != "1" ]; then
             find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
               echo "$_1:"
               echo "======"
