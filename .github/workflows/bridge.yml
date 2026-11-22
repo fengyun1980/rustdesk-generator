@@ -4,6 +4,12 @@ name: 构建 flutter-rust-bridge
 
 on:
   workflow_call:
+    inputs:
+      rustdesk-version:
+        description: 'RustDesk version tag; source and bridge must come from the same ref'
+        required: false
+        type: string
+        default: ''
 
 env:
   CARGO_EXPAND_VERSION: "1.0.95"
@@ -13,6 +19,9 @@ env:
 jobs:
   generate_bridge:
     runs-on: ${{ matrix.job.os }}
+    # 旧版本标签没有 Flutter 3.44 的适配补丁，arm64 专用 bridge 可能生成失败；
+    # 这不应影响 x64 等使用默认 bridge 的构建。
+    continue-on-error: ${{ matrix.job.artifact-name == 'bridge-artifact-flutter-3.44' }}
     strategy:
       fail-fast: false
       matrix:
@@ -38,6 +47,8 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: rustdesk/rustdesk
+          # 必须与构建任务检出同一个版本，否则生成的 bridge 与 flutter_ffi.rs 参数不一致
+          ref: ${{ inputs.rustdesk-version }}
           submodules: recursive
 
       - name: 安装前置依赖
@@ -95,7 +106,10 @@ jobs:
           else
             # Flutter 3.44 bridge for Windows arm64: match that build's source/pubspec state so the
             # generated *.freezed.dart compiles against the same Flutter/freezed it resolves.
-            bash .github/patches/apply_flutter_3.44_source_patches.sh
+            # 旧标签没有这个补丁脚本，跳过即可（该 job 已允许失败，不影响 x64 构建）。
+            if [[ -f .github/patches/apply_flutter_3.44_source_patches.sh ]]; then
+              bash .github/patches/apply_flutter_3.44_source_patches.sh
+            fi
           fi
           pushd flutter && flutter pub get && popd
 

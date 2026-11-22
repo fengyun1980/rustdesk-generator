@@ -82,6 +82,8 @@ jobs:
   generate-bridge:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/bridge.yml
+    with:
+      rustdesk-version: ${{ inputs.rustdesk-version }}
 
   build-android-aarch64:
     if: ${{ github.event_name == 'workflow_dispatch' }}
