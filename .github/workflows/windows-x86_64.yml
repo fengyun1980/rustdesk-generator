@@ -386,19 +386,19 @@ jobs:
           if [ -f ./custom-config/public-key.txt ] && [ -f ./rustdesk/printer_driver_adapter.dll ]; then
             PUBKEY=$(tr -d '[:space:]' < ./custom-config/public-key.txt)
             python3 - "$PUBKEY" <<'PY'
-import sys
-path = './rustdesk/printer_driver_adapter.dll'
-default_key = b'5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM='
-custom_key = sys.argv[1].encode()
-if len(custom_key) != len(default_key):
-    sys.exit(f'ERROR: custom public key length {len(custom_key)} != {len(default_key)}')
-data = open(path, 'rb').read()
-count = data.count(default_key)
-if count != 1:
-    sys.exit(f'ERROR: expected exactly one default public key in adapter, found {count}')
-open(path, 'wb').write(data.replace(default_key, custom_key))
-print('Patched printer_driver_adapter.dll public key')
-PY
+          import sys
+          path = './rustdesk/printer_driver_adapter.dll'
+          default_key = b'5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM='
+          custom_key = sys.argv[1].encode()
+          if len(custom_key) != len(default_key):
+              sys.exit(f'ERROR: custom public key length {len(custom_key)} != {len(default_key)}')
+          data = open(path, 'rb').read()
+          count = data.count(default_key)
+          if count != 1:
+              sys.exit(f'ERROR: expected exactly one default public key in adapter, found {count}')
+          open(path, 'wb').write(data.replace(default_key, custom_key))
+          print('Patched printer_driver_adapter.dll public key')
+          PY
           fi
           ASSETS_DIR="./rustdesk/data/flutter_assets/assets"
           mkdir -p "${ASSETS_DIR}"
