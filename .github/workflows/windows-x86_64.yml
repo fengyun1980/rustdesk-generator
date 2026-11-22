@@ -127,6 +127,24 @@ jobs:
           ref: ${{ inputs.rustdesk-version }}
           submodules: recursive
 
+      - name: 检测源码构建能力
+        # 老版本（如 1.3.7/1.4.x）的生成器与 MSI 预处理脚本没有新增的 --exclude-exe / --template 参数，
+        # 预置打包器模板和 MSI 模板只用于快速构建缓存，跳过它们不影响 exe/msi 产物。
+        id: caps
+        shell: bash
+        run: |
+          if grep -q -- '--exclude-exe' libs/portable/generate.py 2>/dev/null; then
+            echo "packer_template=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "packer_template=false" >> "$GITHUB_OUTPUT"
+          fi
+          if grep -q -- '"--template"' res/msi/preprocess.py 2>/dev/null; then
+            echo "msi_template=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "msi_template=false" >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
       - name: 检出生成器脚本
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -442,7 +460,7 @@ jobs:
             }
 
       - name: 构建模板打包器
-        if: env.SIGN_BASE_URL != ''
+        if: env.SIGN_BASE_URL != '' && steps.caps.outputs.packer_template == 'true'
         shell: bash
         run: |
           sed -i '/dpiAware/d' res/manifest.xml
@@ -454,7 +472,7 @@ jobs:
           cp ./target/${{ matrix.job.target }}/release/rustdesk-portable-packer.exe ./packer-template/rustdesk-template-${{ matrix.job.arch }}.exe
 
       - name: 上传未签名模板打包器
-        if: env.SIGN_BASE_URL != ''
+        if: env.SIGN_BASE_URL != '' && steps.caps.outputs.packer_template == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rustdesk-unsigned-packer-template-${{ matrix.job.arch }}
@@ -496,6 +514,7 @@ jobs:
           sha256sum ../../SignOutput/rustdesk-*.msi
 
       - name: 构建预置 MSI 模板
+        if: steps.caps.outputs.msi_template == 'true'
         # Two things this works around: preprocess.py rewrites res/msi in place, so the
         # tree is reset around this second variant; and it locates the app as
         # <app-name>.exe inside the dist, so the dist copy is renamed to match.
@@ -536,6 +555,7 @@ jobs:
           rm -r -fo ./rustdesk-msi-template
 
       - name: 上传未签名 MSI 模板
+        if: steps.caps.outputs.msi_template == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rustdesk-unsigned-msi-template-${{ matrix.job.arch }}
