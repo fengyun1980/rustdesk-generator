@@ -82,10 +82,12 @@ entries=""
 for f in "$ARTIFACT_DIR"/*; do
   [ -f "$f" ] || continue
   name="$(basename "$f")"
-  # 用自定义应用名称替换产物默认的 rustdesk 前缀（保留版本号与架构后缀）
+  # 用自定义应用名称替换产物默认的 rustdesk 前缀；版本号已单独展示，
+  # 文件名里不再保留版本段（如 rdservice-1.5.1-x86_64.exe -> rdservice-x86_64.exe）。
   if [ -n "$SAFE_APP_NAME" ]; then
     suffix="${name#rustdesk}"
     [ "$suffix" = "$name" ] && suffix="-${name}"
+    suffix="$(printf '%s' "$suffix" | sed -E 's/-[0-9]+\.[0-9]+\.[0-9]+//')"
     name="${SAFE_APP_NAME}${suffix}"
   fi
   # URL 编码，兼容中文、空格等名称。
