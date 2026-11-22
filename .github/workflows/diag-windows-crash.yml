@@ -10,7 +10,7 @@ permissions:
 jobs:
   diag:
     runs-on: windows-2022
-    timeout-minutes: 20
+    timeout-minutes: 12
     steps:
       - name: Download our built artifact
         uses: actions/download-artifact@v4
@@ -21,20 +21,13 @@ jobs:
           repository: fengyun1980/rustdesk-generator
           github-token: ${{ github.token }}
 
-      - name: Prepare variants and official build
+      - name: Prepare and patch adapter key
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force C:\work | Out-Null
-          Copy-Item -Recurse ours C:\work\ours_default
-          Copy-Item -Recurse ours C:\work\ours_official_adapter
-          Invoke-WebRequest -Uri https://github.com/rustdesk/rustdesk/releases/download/1.5.3/rustdesk-1.5.3-x86_64.msi -OutFile C:\work\official.msi
-          Start-Process msiexec -ArgumentList '/a','C:\work\official.msi','/qn','TARGETDIR=C:\work\official' -Wait
-          Get-ChildItem C:\work\official -Recurse -Filter printer_driver_adapter.dll | Select-Object FullName,Length | Format-Table -AutoSize | Out-String | Write-Host
-          $ad = Get-ChildItem C:\work\official -Recurse -Filter printer_driver_adapter.dll | Select-Object -First 1
-          Write-Host "official adapter: $($ad.FullName) $($ad.Length)"
-          Copy-Item $ad.FullName C:\work\ours_official_adapter\printer_driver_adapter.dll -Force
-          Get-Item C:\work\ours_default\printer_driver_adapter.dll | Select-Object FullName,Length | Format-Table -AutoSize | Out-String | Write-Host
-          Get-ChildItem C:\work\official -Filter *.exe | Select-Object Name,Length | Format-Table -AutoSize | Out-String | Write-Host
+          Copy-Item -Recurse ours C:\work\default_adapter
+          Copy-Item -Recurse ours C:\work\patched_adapter
+          python -c "import sys;p=r'C:\work\patched_adapter\printer_driver_adapter.dll';d=open(p,'rb').read();o=b'5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=';n=b'BCjRiUpyTbnrEQC5BCVVaySF1dinRDvGtkCCzlZGbKg=';print('count',d.count(o));assert d.count(o)==1;open(p,'wb').write(d.replace(o,n));print('patched')"
 
       - name: Run matrix
         shell: pwsh
@@ -42,35 +35,29 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           function Kill-All {
-            Get-Process rustdesk,RDService,MyApp,App -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Get-Process rustdesk,RDService,MyApp -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           }
-          function Run-Case([string]$label, [string]$exe, [string]$dir) {
+          function Run-Case([string]$label, [string]$dir) {
             Write-Host ""
             Write-Host "===================== CASE: $label ====================="
             Kill-All
             Start-Sleep -Seconds 1
             Remove-Item -Recurse -Force "$env:APPDATA\RDService", "$env:APPDATA\RustDesk", "$env:APPDATA\MyApp" -ErrorAction SilentlyContinue
             $out = "C:\work\$label.out.txt"; $err = "C:\work\$label.err.txt"
-            $p = Start-Process -FilePath $exe -WorkingDirectory $dir -ArgumentList @() `
+            $p = Start-Process -FilePath (Join-Path $dir 'rustdesk.exe') -WorkingDirectory $dir -ArgumentList @() `
                  -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -NoNewWindow
-            $exited = $p.WaitForExit(8000)
-            Write-Host "ExitedWithin8s=$exited"
+            $exited = $p.WaitForExit(10000)
+            Write-Host "ExitedWithin10s=$exited"
             if ($exited) { Write-Host "ExitCode=$($p.ExitCode)" }
             Write-Host "--- log grep ---"
             foreach ($d in "$env:APPDATA\RDService\log", "$env:APPDATA\RustDesk\log") {
               if (Test-Path "$d\rustdesk_rCURRENT.log") {
                 Write-Host "[$d]"
-                Select-String -Path "$d\rustdesk_rCURRENT.log" -Pattern 'printer|panic' | ForEach-Object { Write-Host $_.Line }
+                Select-String -Path "$d\rustdesk_rCURRENT.log" -Pattern 'printer|panic|custom' | ForEach-Object { Write-Host $_.Line }
               }
             }
             Kill-All
             Start-Sleep -Seconds 1
           }
-          Run-Case '1_ours_default' 'C:\work\ours_default\rustdesk.exe' 'C:\work\ours_default'
-          Run-Case '2_ours_official_adapter' 'C:\work\ours_official_adapter\rustdesk.exe' 'C:\work\ours_official_adapter'
-          $officialExe = (Get-ChildItem C:\work\official -Filter rustdesk.exe -Recurse | Select-Object -First 1).FullName
-          if (-not $officialExe) { $officialExe = (Get-ChildItem C:\work\official -Filter *.exe -Recurse | Select-Object -First 1).FullName }
-          Copy-Item C:\work\ours_default\custom.txt (Join-Path (Split-Path $officialExe) 'custom.txt') -Force
-          Run-Case '3_official_with_custom' $officialExe (Split-Path $officialExe)
-          Remove-Item (Join-Path (Split-Path $officialExe) 'custom.txt') -Force -ErrorAction SilentlyContinue
-          Run-Case '4_official_alone' $officialExe (Split-Path $officialExe)
+          Run-Case '1_default_adapter' 'C:\work\default_adapter'
+          Run-Case '2_patched_adapter' 'C:\work\patched_adapter'
