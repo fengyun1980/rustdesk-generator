@@ -10,7 +10,7 @@ permissions:
 jobs:
   diag:
     runs-on: windows-2022
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Download our built artifact
         uses: actions/download-artifact@v4
@@ -25,19 +25,37 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force C:\work | Out-Null
-          Get-ChildItem ours | Select-Object Name,Length | Format-Table -AutoSize | Out-String | Write-Host
           Copy-Item -Recurse ours C:\work\withcustom
           Copy-Item -Recurse ours C:\work\nocustom
           Remove-Item C:\work\nocustom\custom.txt -Force -ErrorAction SilentlyContinue
           Copy-Item -Recurse ours C:\work\emptycustom
           Set-Content -Path C:\work\emptycustom\custom.txt -Value '' -NoNewline
-          Copy-Item -Recurse ours C:\work\garbage
-          Set-Content -Path C:\work\garbage\custom.txt -Value 'not-a-valid-config' -NoNewline
-          Write-Host "custom.txt sizes:"
-          foreach ($d in 'withcustom','nocustom','emptycustom','garbage') {
+          Copy-Item -Recurse ours C:\work\withcustom_noprinter
+          Remove-Item C:\work\withcustom_noprinter\printer_driver_adapter.dll -Force -ErrorAction SilentlyContinue
+          Copy-Item -Recurse ours C:\work\emptycustom_noprinter
+          Set-Content -Path C:\work\emptycustom_noprinter\custom.txt -Value '' -NoNewline
+          Remove-Item C:\work\emptycustom_noprinter\printer_driver_adapter.dll -Force -ErrorAction SilentlyContinue
+          foreach ($d in 'withcustom','nocustom','emptycustom','withcustom_noprinter','emptycustom_noprinter') {
             $f = "C:\work\$d\custom.txt"
-            if (Test-Path $f) { Write-Host "$d => $((Get-Item $f).Length) bytes" } else { Write-Host "$d => (no custom.txt)" }
+            $p = "C:\work\$d\printer_driver_adapter.dll"
+            $cs = if (Test-Path $f) { "$((Get-Item $f).Length)B" } else { "none" }
+            $ps = if (Test-Path $p) { "adapter=yes" } else { "adapter=no" }
+            Write-Host "$d custom.txt=$cs $ps"
           }
+
+      - name: Locate cdb
+        shell: pwsh
+        run: |
+          $cdb = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
+          if (-not (Test-Path $cdb)) { $cdb = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits' -Recurse -Filter cdb.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName }
+          Write-Host "CDB=$cdb"
+          if ($cdb) { $cdb | Set-Content C:\work\cdbpath.txt }
+          @'
+          .symfix
+          .reload
+          bp ntdll!NtTerminateProcess "kb; ~*k; q"
+          g
+          '@ | Set-Content C:\work\cdbcmds.txt -Encoding ASCII
 
       - name: Run variant matrix
         shell: pwsh
@@ -60,54 +78,51 @@ jobs:
             Write-Host "ExitedWithin8s=$exited"
             if ($exited) { Write-Host "ExitCode=$($p.ExitCode)" }
             Write-Host "--- stderr ---"; Get-Content $err -ErrorAction SilentlyContinue | Write-Host
-            Write-Host "--- log tail ---"
+            Write-Host "--- log grep ---"
             foreach ($d in "$env:APPDATA\RDService\log", "$env:APPDATA\RustDesk\log") {
-              if (Test-Path "$d\rustdesk_rCURRENT.log") { Write-Host "[$d]"; Get-Content "$d\rustdesk_rCURRENT.log" -Tail 5 | Write-Host }
+              if (Test-Path "$d\rustdesk_rCURRENT.log") {
+                Write-Host "[$d]"
+                Select-String -Path "$d\rustdesk_rCURRENT.log" -Pattern 'printer|panic|abort' | ForEach-Object { Write-Host $_.Line }
+              }
             }
             Kill-All
             Start-Sleep -Seconds 1
           }
-          Run-Case 'nocustom' 'C:\work\nocustom' @()
-          Run-Case 'emptycustom' 'C:\work\emptycustom' @()
-          Run-Case 'garbage' 'C:\work\garbage' @()
-          Run-Case 'withcustom' 'C:\work\withcustom' @()
+          Run-Case 'D_nocustom_ctl' 'C:\work\nocustom' @()
+          Run-Case 'E_withcustom_ctl' 'C:\work\withcustom' @()
+          Run-Case 'A_withcustom_noprinter' 'C:\work\withcustom_noprinter' @()
+          Run-Case 'B_emptycustom_noprinter' 'C:\work\emptycustom_noprinter' @()
 
-      - name: Locate cdb
-        shell: pwsh
-        run: |
-          $cands = @(
-            'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe',
-            'C:\Program Files\Windows Kits\10\Debuggers\x64\cdb.exe'
-          )
-          $cdb = $null
-          foreach ($c in $cands) { if (Test-Path $c) { $cdb = $c; break } }
-          if (-not $cdb) { $cdb = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits' -Recurse -Filter cdb.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName }
-          Write-Host "CDB=$cdb"
-          if ($cdb) { $cdb | Set-Content C:\work\cdbpath.txt }
-
-      - name: Debug crash with cdb
+      - name: Debug emptycustom under cdb
         shell: pwsh
         continue-on-error: true
         run: |
           if (-not (Test-Path C:\work\cdbpath.txt)) { Write-Host "no cdb, skip"; exit 0 }
           $cdb = Get-Content C:\work\cdbpath.txt
-          @'
-          .symfix
-          .reload
-          bp ntdll!NtTerminateProcess "kb; r; ~*k; q"
-          bp kernel32!ExitProcess "kb; ~*k; q"
-          bp ucrtbase!abort "kb; ~*k; q"
-          g
-          '@ | Set-Content C:\work\cdbcmds.txt -Encoding ASCII
           Get-Process rustdesk -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 1
           Remove-Item -Recurse -Force "$env:APPDATA\RDService", "$env:APPDATA\RustDesk" -ErrorAction SilentlyContinue
-          $p = Start-Process -FilePath $cdb -ArgumentList @('-cf','C:\work\cdbcmds.txt','C:\work\withcustom\rustdesk.exe') `
-               -WorkingDirectory 'C:\work\withcustom' -RedirectStandardOutput 'C:\work\cdb.out.txt' -RedirectStandardError 'C:\work\cdb.err.txt' -PassThru -NoNewWindow
+          $p = Start-Process -FilePath $cdb -ArgumentList @('-cf','C:\work\cdbcmds.txt','C:\work\emptycustom\rustdesk.exe') `
+               -WorkingDirectory 'C:\work\emptycustom' -RedirectStandardOutput 'C:\work\cdb_empty.out.txt' -RedirectStandardError 'C:\work\cdb_empty.err.txt' -PassThru -NoNewWindow
           $done = $p.WaitForExit(120000)
           Write-Host "cdbDone=$done"
           if (-not $done) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
-          Write-Host "=========== CDB STDOUT ==========="
-          Get-Content C:\work\cdb.out.txt -ErrorAction SilentlyContinue | Write-Host
-          Write-Host "=========== CDB STDERR ==========="
-          Get-Content C:\work\cdb.err.txt -ErrorAction SilentlyContinue | Write-Host
+          Write-Host "=========== CDB STDOUT (emptycustom) ==========="
+          Get-Content C:\work\cdb_empty.out.txt -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch '^ModLoad:' } | Write-Host
+
+      - name: Debug withcustom_noprinter under cdb
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          if (-not (Test-Path C:\work\cdbpath.txt)) { Write-Host "no cdb, skip"; exit 0 }
+          $cdb = Get-Content C:\work\cdbpath.txt
+          Get-Process rustdesk -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 1
+          Remove-Item -Recurse -Force "$env:APPDATA\RDService", "$env:APPDATA\RustDesk" -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath $cdb -ArgumentList @('-cf','C:\work\cdbcmds.txt','C:\work\withcustom_noprinter\rustdesk.exe') `
+               -WorkingDirectory 'C:\work\withcustom_noprinter' -RedirectStandardOutput 'C:\work\cdb_wc.out.txt' -RedirectStandardError 'C:\work\cdb_wc.err.txt' -PassThru -NoNewWindow
+          $done = $p.WaitForExit(30000)
+          Write-Host "cdbDone=$done"
+          if (-not $done) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; Write-Host "still alive after 30s => survived" }
+          Write-Host "=========== CDB STDOUT (withcustom_noprinter) ==========="
+          Get-Content C:\work\cdb_wc.out.txt -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch '^ModLoad:' } | Write-Host
