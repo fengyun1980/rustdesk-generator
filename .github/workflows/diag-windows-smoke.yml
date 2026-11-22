@@ -24,38 +24,33 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           cd dist
-          Get-ChildItem | Select-Object Name,Length | Format-Table -AutoSize | Out-String | Write-Host
 
-          Write-Host "===== --version ====="
-          $out = & .\rustdesk.exe --version 2>&1
-          $code = $LASTEXITCODE
-          Write-Host "exit=$code"
-          Write-Host ($out | Out-String)
+          Write-Host "===== --version via cmd ====="
+          cmd /c ".\rustdesk.exe --version & echo EXITCODE=%ERRORLEVEL%"
 
           Write-Host "===== start UI ====="
           $p = Start-Process -FilePath .\rustdesk.exe -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
-          Start-Sleep -Seconds 25
-          if ($p.HasExited) {
-            Write-Host "EXITED code=$($p.ExitCode)"
-          } else {
-            $proc = Get-Process -Id $p.Id -ErrorAction SilentlyContinue
-            Write-Host "RUNNING pid=$($p.Id) title=$($proc.MainWindowTitle)"
-            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Seconds 1
+            $p.Refresh()
+            if ($p.HasExited) { break }
           }
+          Write-Host "HasExited=$($p.HasExited)"
+          if ($p.HasExited) {
+            Write-Host "ExitCode=$($p.ExitCode)"
+          }
+          Write-Host "processes:"
+          Get-Process | Where-Object { $_.ProcessName -like '*rustdesk*' -or $_.ProcessName -like '*RuntimeBroker*' } | Select-Object Id,ProcessName,MainWindowTitle | Format-Table -AutoSize | Out-String | Write-Host
+
           Write-Host "===== stdout ====="
           if (Test-Path out.txt) { Get-Content out.txt -Raw }
           Write-Host "===== stderr ====="
           if (Test-Path err.txt) { Get-Content err.txt -Raw }
 
-          Write-Host "===== APPDATA dirs ====="
-          Get-ChildItem $env:APPDATA -Directory | Select-Object Name | Format-Table -AutoSize | Out-String | Write-Host
-          if (Test-Path "$env:APPDATA\RDService") {
-            Get-ChildItem "$env:APPDATA\RDService" -Recurse | Select-Object FullName | Out-String | Write-Host
-            Get-ChildItem "$env:APPDATA\RDService\log" -ErrorAction SilentlyContinue | ForEach-Object {
-              Write-Host "===== LOG $($_.FullName) ====="
-              Get-Content $_.FullName -Tail 200
-            }
+          Write-Host "===== log ====="
+          Get-ChildItem "$env:APPDATA\RDService\log\*.log" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "===== LOG $($_.FullName) ====="
+            Get-Content $_.FullName -Tail 120
           }
-          if (Test-Path "$env:LOCALAPPDATA\rustdesk") {
-            Get-ChildItem "$env:LOCALAPPDATA\rustdesk" | Select-Object Name,Length | Format-Table -AutoSize | Out-String | Write-Host
-          }
+
+          Get-Process | Where-Object { $_.ProcessName -like '*rustdesk*' } | Stop-Process -Force -ErrorAction SilentlyContinue
